@@ -12,7 +12,6 @@ from typing import Optional, List
 from contextlib import asynccontextmanager
 
 import numpy as np
-import pandas as pd
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,7 +61,7 @@ async def fetch_ticker(client: httpx.AsyncClient, symbol: str) -> Optional[dict]
         logger.debug(f"Ticker error {symbol}: {e}")
     return None
 
-async def fetch_klines(client: httpx.AsyncClient, symbol: str, interval: str = "Min15", limit: int = 100) -> Optional[pd.DataFrame]:
+async def fetch_klines(client: httpx.AsyncClient, symbol: str, interval: str = "Min15", limit: int = 100) -> Optional[dict]:
     """Fetch OHLCV klines for ML features"""
     try:
         r = await client.get(
@@ -83,15 +82,15 @@ async def fetch_klines(client: httpx.AsyncClient, symbol: str, interval: str = "
                     low_list = rows.get("low", [])
                     vol_list = rows.get("vol", [])
                     if len(close_list) > 20:
-                        df = pd.DataFrame({
+                        kline_data = {
                             "timestamp": time_list,
-                            "open": [float(x) for x in open_list],
-                            "high": [float(x) for x in high_list],
-                            "low": [float(x) for x in low_list],
-                            "close": [float(x) for x in close_list],
-                            "volume": [float(x) for x in vol_list],
-                        })
-                        return df
+                            "open": np.array([float(x) for x in open_list]),
+                            "high": np.array([float(x) for x in high_list]),
+                            "low": np.array([float(x) for x in low_list]),
+                            "close": np.array([float(x) for x in close_list]),
+                            "volume": np.array([float(x) for x in vol_list]),
+                        }
+                        return kline_data
     except Exception as e:
         logger.debug(f"Kline error {symbol}: {e}")
     return None

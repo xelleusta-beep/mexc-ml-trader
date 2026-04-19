@@ -5,7 +5,6 @@ Ensemble: Random Forest + XGBoost + LSTM simulation
 """
 
 import numpy as np
-import pandas as pd
 from typing import Optional
 import logging
 
@@ -316,19 +315,21 @@ class MLEngine:
         self._accuracy = 72.4  # Base accuracy (improves with real data)
         self._predictions_count = 0
 
-    def _extract_features(self, df: Optional[pd.DataFrame], current_price: float) -> dict:
-        """DataFrame'den özellik çıkar"""
-        if df is None or len(df) < 20:
+    def _extract_features(self, klines: Optional[dict], current_price: float) -> dict:
+        """dict'ten (NumPy arrays) özellik çıkar"""
+        if klines is None or len(klines.get("close", [])) < 20:
             # Fallback: sadece fiyata dayalı sahte özellikler
             base = current_price if current_price > 0 else 100
             prices = base * (1 + np.random.normal(0, 0.005, 50))
             prices[-1] = current_price
             volumes = np.random.uniform(1e6, 1e8, 50)
+            highs = prices * 1.005
+            lows = prices * 0.995
         else:
-            prices = df["close"].values.astype(float)
-            volumes = df["volume"].values.astype(float)
-            highs = df["high"].values.astype(float)
-            lows = df["low"].values.astype(float)
+            prices = np.array(klines["close"], dtype=float)
+            volumes = np.array(klines["volume"], dtype=float)
+            highs = np.array(klines["high"], dtype=float)
+            lows = np.array(klines["low"], dtype=float)
 
         # Indicators
         rsi_val = self.ti.rsi(prices)
@@ -336,19 +337,10 @@ class MLEngine:
         bb_upper, bb_mid, bb_lower = self.ti.bollinger_bands(prices)
         vol_ratio = self.ti.volume_ratio(volumes)
         obv_trend = self.ti.obv(prices, volumes)
-        mfi_val = self.ti.mfi(
-            df["high"].values if df is not None and len(df) >= 20 else prices * 1.002,
-            df["low"].values if df is not None and len(df) >= 20 else prices * 0.998,
-            prices,
-            volumes
-        )
+        mfi_val = self.ti.mfi(highs, lows, prices, volumes)
 
         # ATR
-        atr_val = self.ti.atr(
-            df["high"].values if df is not None and len(df) >= 20 else prices * 1.005,
-            df["low"].values if df is not None and len(df) >= 20 else prices * 0.995,
-            prices
-        )
+        atr_val = self.ti.atr(highs, lows, prices)
 
         # BB position (0 = lower band, 1 = upper band)
         bb_range = bb_upper - bb_lower
@@ -378,10 +370,10 @@ class MLEngine:
             "ema_cross": ema_cross,
         }
 
-    def predict(self, symbol: str, df: Optional[pd.DataFrame], current_price: float) -> dict:
+    def predict(self, symbol: str, klines: Optional[dict], current_price: float) -> dict:
         """Run ensemble prediction"""
         try:
-            features = self._extract_features(df, current_price)
+            features = self._extract_features(klines, current_price)
             prices = features["prices"]
 
             # Run 3 models
@@ -449,7 +441,7 @@ class MLEngine:
                 "xgb_signal": max(xgb_proba, key=xgb_proba.get),
                 "lstm_signal": max(lstm_proba, key=lstm_proba.get),
                 "ensemble_proba": {k: round(v*100,1) for k,v in ensemble.items()},
-                "data_quality": "real" if df is not None and len(df) >= 20 else "estimated",
+                "data_quality": "real" if klines is not None and len(klines.get("close", [])) >= 20 else "estimated",
             }
 
         except Exception as e:
