@@ -216,7 +216,8 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
         sl = result["stop_loss"]
         # TR Time (UTC+3)
         from datetime import timedelta
-        tr_time = (datetime.utcnow() + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
+        entry_time_raw = datetime.utcnow()
+        tr_time = (entry_time_raw + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
 
         st["active_pos"] = {
             "entry_price": price,
@@ -224,6 +225,7 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
             "leverage": leverage,
             "size": 100 * leverage, # Assuming 100 USDT base size
             "timestamp": tr_time,
+            "entry_time_raw": entry_time_raw,
             "tp": tp,
             "sl": sl,
             "indicators": ", ".join(prediction["indicators"])
@@ -300,7 +302,15 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
 
             pnl_emoji = "🟢" if net_pnl > 0 else "🔴"
             from datetime import timedelta
-            tr_time_exit = (datetime.utcnow() + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
+            exit_time_raw = datetime.utcnow()
+            tr_time_exit = (exit_time_raw + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
+
+            # Duration calculation
+            diff = exit_time_raw - pos["entry_time_raw"]
+            seconds = int(diff.total_seconds())
+            hours, remainder = divmod(seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            duration_str = f"{hours}sa {minutes}dk {seconds}sn" if hours > 0 else f"{minutes}dk {seconds}sn"
 
             curr_indicators = ", ".join(prediction["indicators"])
             msg = (
@@ -312,6 +322,7 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
                 f"💵 Net PnL: <b>{pnl_emoji} ${net_pnl:.2f}</b>\n"
                 f"📈 Toplam PnL: <b>${st['pnl']:.2f}</b>\n"
                 f"🕒 Zaman: <code>{tr_time_exit}</code> (TR)\n"
+                f"⏳ İşlem Süresi: <b>{duration_str}</b>\n"
                 f"🔍 Çıkış Koşulları: <i>{curr_indicators}</i>"
             )
             asyncio.create_task(send_telegram_message(msg))
