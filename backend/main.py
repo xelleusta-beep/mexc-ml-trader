@@ -8,7 +8,7 @@ import json
 import time
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from contextlib import asynccontextmanager
 
 import numpy as np
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # ── Globals ──────────────────────────────────────────────────────────────────
 ml_engine = MLEngine()
-active_connections: list[WebSocket] = []
+active_connections: List[WebSocket] = []
 scanner_cache: dict = {}
 agent_states: dict = {}
 
