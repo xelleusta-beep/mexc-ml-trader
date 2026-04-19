@@ -82,15 +82,18 @@ async def fetch_klines(client: httpx.AsyncClient, symbol: str, interval: str = "
                     low_list = rows.get("low", [])
                     vol_list = rows.get("vol", [])
                     if len(close_list) > 20:
-                        kline_data = {
-                            "timestamp": time_list,
-                            "open": np.array([float(x) for x in open_list]),
-                            "high": np.array([float(x) for x in high_list]),
-                            "low": np.array([float(x) for x in low_list]),
-                            "close": np.array([float(x) for x in close_list]),
-                            "volume": np.array([float(x) for x in vol_list]),
-                        }
-                        return kline_data
+                        try:
+                            kline_data = {
+                                "timestamp": time_list,
+                                "open": np.array([float(x) for x in open_list]),
+                                "high": np.array([float(x) for x in high_list]),
+                                "low": np.array([float(x) for x in low_list]),
+                                "close": np.array([float(x) for x in close_list]),
+                                "volume": np.array([float(x) for x in vol_list]),
+                            }
+                            return kline_data
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Kline data conversion error for {symbol}: {e}")
     except Exception as e:
         logger.debug(f"Kline error {symbol}: {e}")
     return None
@@ -194,13 +197,15 @@ async def broadcast_loop():
                 "total_pairs": len(scanner_cache),
             })
             dead = []
-            for ws in active_connections:
+            # Use a copy to avoid RuntimeError: list changed size during iteration
+            for ws in active_connections[:]:
                 try:
                     await ws.send_text(msg)
                 except Exception:
                     dead.append(ws)
             for ws in dead:
-                active_connections.remove(ws)
+                if ws in active_connections:
+                    active_connections.remove(ws)
         await asyncio.sleep(5)
 
 # ── REST Endpoints ─────────────────────────────────────────────────────────────

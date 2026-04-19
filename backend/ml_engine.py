@@ -16,7 +16,7 @@ class TechnicalIndicators:
 
     @staticmethod
     def rsi(prices: np.ndarray, period: int = 14) -> float:
-        if len(prices) < period + 1:
+        if prices is None or len(prices) < period + 1:
             return 50.0
         deltas = np.diff(prices)
         gains = np.where(deltas > 0, deltas, 0)
@@ -30,6 +30,8 @@ class TechnicalIndicators:
 
     @staticmethod
     def ema(prices: np.ndarray, period: int) -> np.ndarray:
+        if prices is None or len(prices) == 0:
+            return np.array([0.0])
         k = 2 / (period + 1)
         ema_vals = np.zeros(len(prices))
         ema_vals[0] = prices[0]
@@ -39,7 +41,7 @@ class TechnicalIndicators:
 
     @staticmethod
     def macd(prices: np.ndarray) -> tuple:
-        if len(prices) < 26:
+        if prices is None or len(prices) < 26:
             return 0.0, 0.0, 0.0
         ema12 = TechnicalIndicators.ema(prices, 12)
         ema26 = TechnicalIndicators.ema(prices, 26)
@@ -50,8 +52,8 @@ class TechnicalIndicators:
 
     @staticmethod
     def bollinger_bands(prices: np.ndarray, period: int = 20, std_mult: float = 2.0) -> tuple:
-        if len(prices) < period:
-            p = float(prices[-1]) if len(prices) > 0 else 0
+        if prices is None or len(prices) < period:
+            p = float(prices[-1]) if prices is not None and len(prices) > 0 else 0
             return p, p, p
         sma = np.mean(prices[-period:])
         std = np.std(prices[-period:])
@@ -61,7 +63,7 @@ class TechnicalIndicators:
 
     @staticmethod
     def atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int = 14) -> float:
-        if len(high) < period + 1:
+        if high is None or low is None or close is None or len(high) < period + 1:
             return 0.0
         tr = np.maximum(
             high[1:] - low[1:],
@@ -74,7 +76,7 @@ class TechnicalIndicators:
 
     @staticmethod
     def obv(close: np.ndarray, volume: np.ndarray) -> float:
-        if len(close) < 2:
+        if close is None or volume is None or len(close) < 2:
             return 0.0
         obv_vals = np.zeros(len(close))
         obv_vals[0] = volume[0]
@@ -93,7 +95,7 @@ class TechnicalIndicators:
     @staticmethod
     def mfi(high: np.ndarray, low: np.ndarray, close: np.ndarray,
             volume: np.ndarray, period: int = 14) -> float:
-        if len(close) < period + 1:
+        if close is None or high is None or low is None or volume is None or len(close) < period + 1:
             return 50.0
         tp = (high + low + close) / 3
         raw_money = tp * volume
@@ -108,7 +110,7 @@ class TechnicalIndicators:
 
     @staticmethod
     def volume_ratio(volume: np.ndarray, period: int = 20) -> float:
-        if len(volume) < period + 1:
+        if volume is None or len(volume) < period + 1:
             return 1.0
         avg_vol = np.mean(volume[-period-1:-1])
         if avg_vol == 0:

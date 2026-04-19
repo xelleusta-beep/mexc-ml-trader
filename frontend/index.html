@@ -51,7 +51,7 @@ html,body{height:100%;font-family:'JetBrains Mono',monospace;background:var(--bg
 .up{color:var(--green)} .down{color:var(--red)} .neutral{color:var(--text3)}
 
 /* STATS */
-.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:14px}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;position:relative;overflow:hidden;transition:all 0.2s}
 .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0.4}
 .stat-label{font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}
@@ -60,8 +60,32 @@ html,body{height:100%;font-family:'JetBrains Mono',monospace;background:var(--bg
 
 /* LAYOUT */
 .main-grid{display:grid;grid-template-columns:1fr 360px;gap:14px;margin-bottom:14px}
-.left-col{display:flex;flex-direction:column;gap:14px}
+.left-col{display:flex;flex-direction:column;gap:14px;min-width:0}
 .sidebar{display:flex;flex-direction:column;gap:14px}
+
+@media (max-width: 1200px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .sidebar { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+}
+
+@media (max-width: 768px) {
+  .header { flex-direction: column; gap: 15px; align-items: flex-start; }
+  .header-right { width: 100%; justify-content: space-between; flex-wrap: wrap; }
+  .stats-row { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .sidebar { grid-template-columns: 1fr; }
+  .logo-title { font-size: 16px; }
+  .logo-sub { font-size: 8px; }
+  .tbl-wrap { max-height: 500px; }
+  .main { padding: 0 10px 20px; }
+  /* Hide non-essential columns on mobile */
+  .tbl th:nth-child(1), .tbl td:nth-child(1),
+  .tbl th:nth-child(7), .tbl td:nth-child(7),
+  .tbl th:nth-child(9), .tbl td:nth-child(9),
+  .tbl th:nth-child(10), .tbl td:nth-child(10),
+  .tbl th:nth-child(11), .tbl td:nth-child(11),
+  .tbl th:nth-child(12), .tbl td:nth-child(12),
+  .tbl th:nth-child(13), .tbl td:nth-child(13) { display: none; }
+}
 
 /* PANEL */
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden}
@@ -224,9 +248,9 @@ html,body{height:100%;font-family:'JetBrains Mono',monospace;background:var(--bg
 
   <!-- AGENT TABLE -->
   <div class="panel anim">
-    <div class="panel-header">
+    <div class="panel-header" style="flex-wrap: wrap; gap: 10px;">
       <div class="panel-title"><div class="dot"></div>Trading Agentler <span class="badge" id="agentBadge">0</span></div>
-      <div class="flex gap8">
+      <div class="flex gap8" style="flex-wrap: wrap;">
         <input class="search" id="searchInput" placeholder="Pair ara..." oninput="renderTable()">
         <div class="filters">
           <button class="f-btn active" onclick="setFilter('all',this)">Tümü</button>
