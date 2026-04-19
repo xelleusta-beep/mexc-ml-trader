@@ -265,6 +265,15 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
                 close_pos = True
                 exit_reason = "🛑 STOP LOSS"
 
+        # Signal Reversal or Wait Condition
+        if not close_pos:
+            if pos["side"] == "LONG" and prediction["signal"] in ["SHORT", "WAIT"]:
+                close_pos = True
+                exit_reason = "🔄 SİNYAL DEĞİŞİMİ" if prediction["signal"] == "SHORT" else "⚠️ RİSK YÖNETİMİ (WAIT)"
+            elif pos["side"] == "SHORT" and prediction["signal"] in ["LONG", "WAIT"]:
+                close_pos = True
+                exit_reason = "🔄 SİNYAL DEĞİŞİMİ" if prediction["signal"] == "LONG" else "⚠️ RİSK YÖNETİMİ (WAIT)"
+
         if close_pos and price > 0:
             entry_price = pos["entry_price"]
             leverage = pos["leverage"]
@@ -293,6 +302,7 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
             from datetime import timedelta
             tr_time_exit = (datetime.utcnow() + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
 
+            curr_indicators = ", ".join(prediction["indicators"])
             msg = (
                 f"<b>✅ İŞLEM KAPATILDI: {symbol}</b> ({exit_reason})\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -301,7 +311,8 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
                 f"💸 Fee (Kaldıraç Dahil): <b>-${total_fee:.2f}</b>\n"
                 f"💵 Net PnL: <b>{pnl_emoji} ${net_pnl:.2f}</b>\n"
                 f"📈 Toplam PnL: <b>${st['pnl']:.2f}</b>\n"
-                f"🕒 Zaman: <code>{tr_time_exit}</code> (TR)"
+                f"🕒 Zaman: <code>{tr_time_exit}</code> (TR)\n"
+                f"🔍 Çıkış Koşulları: <i>{curr_indicators}</i>"
             )
             asyncio.create_task(send_telegram_message(msg))
             st["active_pos"] = None
