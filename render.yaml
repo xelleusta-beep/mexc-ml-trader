@@ -2,11 +2,10 @@ services:
   - type: web
     name: mexc-ml-trader
     runtime: python
-    pythonVersion: 3.11
     region: frankfurt
     plan: free
     buildCommand: pip install -r backend/requirements.txt
-    startCommand: cd backend && python main.py
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     staticPublishPath: frontend
     routes:
       - type: static
