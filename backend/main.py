@@ -7,7 +7,7 @@ import asyncio
 import json
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
 from contextlib import asynccontextmanager
 
@@ -173,13 +173,13 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
     # ML prediction
     prediction = ml_engine.predict(symbol, klines, price)
 
-    # Logic for SL/TP based on side
+    # Logic for SL/TP based on side - Increased precision to 10 decimals for low-priced assets
     if prediction["signal"] == "SHORT":
-        sl = round(price * (1 + 0.025), 6)
-        tp = round(price * (1 - 0.045), 6)
+        sl = round(price * (1 + 0.025), 10)
+        tp = round(price * (1 - 0.045), 10)
     else:
-        sl = round(price * (1 - 0.025), 6)
-        tp = round(price * (1 + 0.045), 6)
+        sl = round(price * (1 - 0.025), 10)
+        tp = round(price * (1 + 0.045), 10)
 
     result = {
         "symbol": symbol,
@@ -204,18 +204,35 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
             "pnl": 0.0,
             "trades": 0,
             "wins": 0,
-            "active_pos": None # Stores entry details
+            "active_pos": None, # Stores entry details
+            "last_exit_time": None
         }
 
     st = agent_states[symbol]
 
-    # Check for new entry - Strict real data only
-    if st["active_pos"] is None and prediction["signal"] in ["LONG", "SHORT"] and price > 0 and prediction["data_quality"] == "real":
+    # Check for new entry - Strict real data only + Cooldown + Distance check
+    can_enter = st["active_pos"] is None and prediction["signal"] in ["LONG", "SHORT"] and price > 0 and prediction["data_quality"] == "real"
+
+    # Cooldown check (5 mins)
+    if can_enter and st["last_exit_time"]:
+        cooldown_diff = (datetime.utcnow() - st["last_exit_time"]).total_seconds()
+        if cooldown_diff < 300: # 5 minutes
+            can_enter = False
+            logger.debug(f"Cooldown active for {symbol}: {300 - cooldown_diff:.0f}s left")
+
+    # Safety distance check (TP/SL must be at least 0.1% away)
+    if can_enter:
+        tp_dist = abs(result["take_profit"] - price) / price
+        sl_dist = abs(result["stop_loss"] - price) / price
+        if tp_dist < 0.001 or sl_dist < 0.001:
+            can_enter = False
+            logger.warning(f"Entry skipped for {symbol}: TP/SL too close to price ({tp_dist:.4%}/{sl_dist:.4%})")
+
+    if can_enter:
         leverage = prediction["leverage"]
         tp = result["take_profit"]
         sl = result["stop_loss"]
         # TR Time (UTC+3)
-        from datetime import timedelta
         entry_time_raw = datetime.utcnow()
         tr_time = (entry_time_raw + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
 
@@ -231,15 +248,20 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
             "indicators": ", ".join(prediction["indicators"])
         }
 
+        # Format prices with high precision
+        f_price = f"{price:.10g}"
+        f_tp = f"{tp:.10g}"
+        f_sl = f"{sl:.10g}"
+
         msg = (
             f"<b>🚀 İŞLEME GİRİLDİ: {symbol}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📍 Giriş Fiyatı: <code>{price}</code>\n"
+            f"📍 Giriş Fiyatı: <code>{f_price}</code>\n"
             f"↕️ Yön: <b>{prediction['signal']}</b>\n"
             f"⚙️ Kaldıraç: <b>{leverage}x</b>\n"
             f"💰 İşlem Büyüklüğü: <b>${100 * leverage}</b>\n"
-            f"🎯 TP: <code>{tp}</code>\n"
-            f"🛑 SL: <code>{sl}</code>\n"
+            f"🎯 TP: <code>{f_tp}</code>\n"
+            f"🛑 SL: <code>{f_sl}</code>\n"
             f"🕒 Zaman: <code>{tr_time}</code> (TR)\n"
             f"🔍 Koşullar: <i>{st['active_pos']['indicators']}</i>"
         )
@@ -301,7 +323,6 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
                 st["wins"] += 1
 
             pnl_emoji = "🟢" if net_pnl > 0 else "🔴"
-            from datetime import timedelta
             exit_time_raw = datetime.utcnow()
             tr_time_exit = (exit_time_raw + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
 
@@ -313,11 +334,16 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
             duration_str = f"{hours}sa {minutes}dk {seconds}sn" if hours > 0 else f"{minutes}dk {seconds}sn"
 
             curr_indicators = ", ".join(prediction["indicators"])
+
+            # Format prices with higher precision for display
+            f_entry = f"{entry_price:.10g}"
+            f_exit = f"{price:.10g}"
+
             msg = (
                 f"<b>✅ İŞLEM KAPATILDI: {symbol}</b> ({exit_reason})\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"📥 Giriş Fiyatı: <code>{entry_price}</code>\n"
-                f"📤 Çıkış Fiyatı: <code>{price}</code>\n"
+                f"📥 Giriş Fiyatı: <code>{f_entry}</code>\n"
+                f"📤 Çıkış Fiyatı: <code>{f_exit}</code>\n"
                 f"💸 Fee (Kaldıraç Dahil): <b>-${total_fee:.2f}</b>\n"
                 f"💵 Net PnL: <b>{pnl_emoji} ${net_pnl:.2f}</b>\n"
                 f"📈 Toplam PnL: <b>${st['pnl']:.2f}</b>\n"
@@ -327,6 +353,7 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
             )
             asyncio.create_task(send_telegram_message(msg))
             st["active_pos"] = None
+            st["last_exit_time"] = exit_time_raw # For cooldown
 
     result["pnl"] = round(st["pnl"], 2)
     result["trades"] = st["trades"]
