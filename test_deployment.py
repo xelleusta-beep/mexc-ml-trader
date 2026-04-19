@@ -51,19 +51,19 @@ try:
     
     # Test prediction on dummy data
     import numpy as np
-    import pandas as pd
     
     prices = np.random.uniform(100, 110, 50)
-    df = pd.DataFrame({
+    # Using dict format matching main.py
+    kline_data = {
         'close': prices,
         'open': prices * 0.99,
         'high': prices * 1.01,
         'low': prices * 0.98,
         'volume': np.random.uniform(1e6, 1e8, 50),
-        'timestamp': range(50)
-    })
+        'timestamp': list(range(50))
+    }
     
-    result = ml.predict("BTC_USDT", df, prices[-1])
+    result = ml.predict("BTC_USDT", kline_data, prices[-1])
     print(f"✅ Prediction result: signal={result['signal']}, conf={result['confidence']}%")
     
 except Exception as e:

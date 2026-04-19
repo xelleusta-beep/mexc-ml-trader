@@ -403,6 +403,15 @@ async def get_model_info():
         "data": ml_engine.get_info()
     }
 
+@app.get("/health")
+async def health_check():
+    """Render health check to keep service alive"""
+    return {
+        "status": "ok",
+        "timestamp": datetime.utcnow().isoformat(),
+        "total_pairs": len(scanner_cache)
+    }
+
 # ── WebSocket ──────────────────────────────────────────────────────────────────
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
