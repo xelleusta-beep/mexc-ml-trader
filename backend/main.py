@@ -194,6 +194,11 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
         "stop_loss": sl if price > 0 else 0,
         "take_profit": tp if price > 0 else 0,
         "leverage": prediction["leverage"],
+        "rf_signal": prediction.get("rf_signal"),
+        "xgb_signal": prediction.get("xgb_signal"),
+        "lstm_signal": prediction.get("lstm_signal"),
+        "transformer_signal": prediction.get("transformer_signal"),
+        "tft_signal": prediction.get("tft_signal"),
         "timestamp": datetime.utcnow().isoformat(),
         "data_source": "real" if klines is not None else "simulated",
     }
@@ -484,4 +489,5 @@ async def serve_frontend():
     return {"message": "MEXC ML Trader API çalışıyor", "docs": "/docs"}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)

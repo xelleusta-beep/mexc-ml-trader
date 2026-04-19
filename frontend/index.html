@@ -84,7 +84,9 @@ html,body{height:100%;font-family:'JetBrains Mono',monospace;background:var(--bg
   .tbl th:nth-child(10), .tbl td:nth-child(10),
   .tbl th:nth-child(11), .tbl td:nth-child(11),
   .tbl th:nth-child(12), .tbl td:nth-child(12),
-  .tbl th:nth-child(13), .tbl td:nth-child(13) { display: none; }
+  .tbl th:nth-child(13), .tbl td:nth-child(13),
+  .tbl th:nth-child(14), .tbl td:nth-child(14),
+  .tbl th:nth-child(15), .tbl td:nth-child(15) { display: none; }
 }
 
 /* PANEL */
@@ -233,7 +235,7 @@ html,body{height:100%;font-family:'JetBrains Mono',monospace;background:var(--bg
   <div class="stat-card">
     <div class="stat-label">Model Accuracy</div>
     <div class="stat-value" style="color:var(--accent)" id="sAcc">—</div>
-    <div class="stat-sub neutral">RF+XGB+LSTM</div>
+    <div class="stat-sub neutral">RF+XGB+LSTM+TRF+TFT</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Taranan Pair</div>
@@ -266,7 +268,7 @@ html,body{height:100%;font-family:'JetBrains Mono',monospace;background:var(--bg
           <tr>
             <th>Durum</th><th>Pair</th><th>Sinyal</th><th>Güven</th>
             <th>Fiyat</th><th>PnL</th><th>Win%</th><th>Kaldıraç</th>
-            <th>İndikatörler</th><th>RF</th><th>XGB</th><th>LSTM</th><th>Veri</th>
+            <th>İndikatörler</th><th>RF</th><th>XGB</th><th>LSTM</th><th>TRF</th><th>TFT</th><th>Veri</th>
           </tr>
         </thead>
         <tbody id="agentBody"></tbody>
@@ -301,7 +303,7 @@ html,body{height:100%;font-family:'JetBrains Mono',monospace;background:var(--bg
   <div class="panel anim">
     <div class="panel-header"><div class="panel-title"><div class="dot" style="background:var(--accent2)"></div>ML Ensemble Modeli</div></div>
     <div style="padding:14px 16px">
-      <div class="metric"><span class="metric-label">Mimari</span><span class="metric-val" style="color:var(--accent);font-size:11px">RF + XGB + LSTM</span></div>
+      <div class="metric"><span class="metric-label">Mimari</span><span class="metric-val" style="color:var(--accent);font-size:11px">RF+XGB+LSTM+TRF+TFT</span></div>
       <div class="metric"><span class="metric-label">Accuracy</span><span class="metric-val up" id="mAcc">—</span></div>
       <div class="metric"><span class="metric-label">Sharpe Ratio</span><span class="metric-val" id="mSharpe">2.31</span></div>
       <div class="metric"><span class="metric-label">Tahmin Sayısı</span><span class="metric-val" id="mPred">—</span></div>
@@ -539,6 +541,8 @@ function renderTable() {
       <td><span class="sig ${sigCls(d.rf_signal)}" style="font-size:9px;padding:2px 5px">${d.rf_signal||'—'}</span></td>
       <td><span class="sig ${sigCls(d.xgb_signal)}" style="font-size:9px;padding:2px 5px">${d.xgb_signal||'—'}</span></td>
       <td><span class="sig ${sigCls(d.lstm_signal)}" style="font-size:9px;padding:2px 5px">${d.lstm_signal||'—'}</span></td>
+      <td><span class="sig ${sigCls(d.transformer_signal)}" style="font-size:9px;padding:2px 5px">${d.transformer_signal||'—'}</span></td>
+      <td><span class="sig ${sigCls(d.tft_signal)}" style="font-size:9px;padding:2px 5px">${d.tft_signal||'—'}</span></td>
       <td><span class="src-badge ${d.data_source==='real'?'src-real':'src-sim'}">${d.data_source==='real'?'Gerçek':'Sim'}</span></td>
     </tr>`;
   }).join('');

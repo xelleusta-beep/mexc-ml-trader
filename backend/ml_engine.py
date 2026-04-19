@@ -303,6 +303,138 @@ class LSTMSimple:
         }
 
 
+class TransformerSimple:
+    """
+    Transformer simulation using self-attention mechanism on features.
+    """
+
+    def predict_proba(self, prices: np.ndarray, features: dict) -> dict:
+        if len(prices) < 20:
+            return {"LONG": 0.25, "SHORT": 0.25, "HOLD": 0.25, "WAIT": 0.25}
+
+        # Attention Simulation: Correlation between current price and past window
+        current = prices[-1]
+        window = prices[-20:]
+
+        # Simulating Query, Key, Value
+        q = current
+        k = window
+        v = np.diff(window, append=window[-1])  # Proxy for "value" (price change)
+
+        # Attention scores (scaled dot-product simulation)
+        # Avoid division by zero
+        norm_k = np.linalg.norm(k)
+        scores = (k * q) / (norm_k + 1e-10)
+        # Softmax
+        exp_scores = np.exp(scores - np.max(scores))
+        weights = exp_scores / np.sum(exp_scores)
+
+        context_vector = np.sum(weights * v)
+
+        # Feature attention
+        rsi = features.get("rsi", 50)
+
+        bull = 0.0
+        bear = 0.0
+
+        if context_vector > 0:
+            bull += context_vector * 10
+        else:
+            bear += abs(context_vector) * 10
+
+        # Attention on RSI
+        if rsi < 30:
+            bull += 1.5
+        elif rsi > 70:
+            bear += 1.5
+
+        noise = np.random.normal(0, 0.05)
+        bull = max(0, bull + noise)
+        bear = max(0, bear - noise)
+
+        total = bull + bear + 0.5
+        p_long = bull / total
+        p_short = bear / total
+        p_hold = max(0, 1 - p_long - p_short) * 0.5
+        p_wait = max(0, 1 - p_long - p_short - p_hold)
+
+        s = p_long + p_short + p_hold + p_wait
+        return {
+            "LONG": p_long / s,
+            "SHORT": p_short / s,
+            "HOLD": p_hold / s,
+            "WAIT": p_wait / s,
+        }
+
+
+class TFTSimple:
+    """
+    Temporal Fusion Transformer (TFT) simulation.
+    Focuses on multi-horizon patterns and feature importance simulation.
+    """
+
+    def predict_proba(self, prices: np.ndarray, features: dict) -> dict:
+        if len(prices) < 20:
+            return {"LONG": 0.25, "SHORT": 0.25, "HOLD": 0.25, "WAIT": 0.25}
+
+        # Multi-horizon: Short term (last 5) vs Long term (last 20)
+        st_mean = np.mean(prices[-5:])
+        lt_mean = np.mean(prices[-20:])
+
+        # Variable Selection Network (VSN) simulation
+        # Weights for different indicators based on volatility
+        volatility = np.std(prices[-20:]) / (np.mean(prices[-20:]) + 1e-10)
+
+        rsi = features.get("rsi", 50)
+        ema_cross = features.get("ema_cross", 0)
+
+        bull = 0.0
+        bear = 0.0
+
+        # Temporal patterns
+        if st_mean > lt_mean:
+            bull += 0.5
+        else:
+            bear += 0.5
+
+        # VSN simulation logic
+        if volatility > 0.02:
+            # High vol logic: focus on Bollinger Bands
+            bb_pct = features.get("bb_pct", 0.5)
+            if bb_pct < 0.2:
+                bull += 1.2
+            elif bb_pct > 0.8:
+                bear += 1.2
+        else:
+            # Low vol logic: focus on EMA
+            bull += max(0, ema_cross) * 0.8
+            bear += max(0, -ema_cross) * 0.8
+
+        # Static covariates simulation (market type context)
+        if rsi < 40:
+            bull += 0.6
+        elif rsi > 60:
+            bear += 0.6
+
+        noise = np.random.normal(0, 0.08)
+        bull = max(0, bull + noise)
+        bear = max(0, bear)
+
+        total = bull + bear + 0.7
+        p_long = bull / total
+        p_short = bear / total
+        p_hold = max(0, 0.4 - p_long * 0.2 - p_short * 0.2)
+        p_wait = max(0, 1 - p_long - p_short - p_hold)
+
+        s = p_long + p_short + p_hold + p_wait
+        return {
+            "LONG": p_long / s,
+            "SHORT": p_short / s,
+            "HOLD": p_hold / s,
+            "WAIT": p_wait / s,
+        }
+
+
 class MLEngine:
     """
     Ensemble ML Engine
@@ -313,6 +445,8 @@ class MLEngine:
         self.rf = RandomForestSimple()
         self.xgb = XGBoostSimple()
         self.lstm = LSTMSimple()
+        self.transformer = TransformerSimple()
+        self.tft = TFTSimple()
         self.ti = TechnicalIndicators()
         self._accuracy = 72.4  # Base accuracy (improves with real data)
         self._predictions_count = 0
@@ -378,19 +512,23 @@ class MLEngine:
             features = self._extract_features(klines, current_price)
             prices = features["prices"]
 
-            # Run 3 models
+            # Run all 5 models
             rf_proba = self.rf.predict_proba(features)
             xgb_proba = self.xgb.predict_proba(features)
             lstm_proba = self.lstm.predict_proba(prices, features)
+            tr_proba = self.transformer.predict_proba(prices, features)
+            tft_proba = self.tft.predict_proba(prices, features)
 
             # Ensemble: weighted average
-            # RF=0.35, XGB=0.35, LSTM=0.30
+            # All 5 models equal weight (0.20 each)
             ensemble = {}
             for sig in ["LONG", "SHORT", "HOLD", "WAIT"]:
                 ensemble[sig] = (
-                    rf_proba[sig] * 0.35 +
-                    xgb_proba[sig] * 0.35 +
-                    lstm_proba[sig] * 0.30
+                    rf_proba[sig] * 0.20 +
+                    xgb_proba[sig] * 0.20 +
+                    lstm_proba[sig] * 0.20 +
+                    tr_proba[sig] * 0.20 +
+                    tft_proba[sig] * 0.20
                 )
 
             # Best signal
@@ -437,11 +575,13 @@ class MLEngine:
                 "signal": signal,
                 "confidence": confidence,
                 "indicators": active_indicators[:4],
-                "model": "RF+XGB+LSTM",
+                "model": "RF+XGB+LSTM+TRF+TFT",
                 "leverage": leverage,
                 "rf_signal": max(rf_proba, key=rf_proba.get),
                 "xgb_signal": max(xgb_proba, key=xgb_proba.get),
                 "lstm_signal": max(lstm_proba, key=lstm_proba.get),
+                "transformer_signal": max(tr_proba, key=tr_proba.get),
+                "tft_signal": max(tft_proba, key=tft_proba.get),
                 "ensemble_proba": {k: round(v*100,1) for k,v in ensemble.items()},
                 "data_quality": "real" if klines is not None and len(klines.get("close", [])) >= 20 else "estimated",
             }
@@ -461,8 +601,8 @@ class MLEngine:
 
     def get_info(self) -> dict:
         return {
-            "models": ["Random Forest", "XGBoost", "LSTM"],
-            "ensemble_weights": {"rf": 0.35, "xgb": 0.35, "lstm": 0.30},
+            "models": ["Random Forest", "XGBoost", "LSTM", "Transformer", "TFT"],
+            "ensemble_weights": {"rf": 0.20, "xgb": 0.20, "lstm": 0.20, "transformer": 0.20, "tft": 0.20},
             "features": ["RSI-14", "MACD(12,26,9)", "BB(20)", "EMA(9,21)", "ATR-14", "OBV", "MFI-14", "Volume Ratio"],
             "accuracy": self.get_accuracy(),
             "predictions_made": self._predictions_count,
