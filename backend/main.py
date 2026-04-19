@@ -173,6 +173,14 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
     # ML prediction
     prediction = ml_engine.predict(symbol, klines, price)
 
+    # Logic for SL/TP based on side
+    if prediction["signal"] == "SHORT":
+        sl = round(price * (1 + 0.025), 6)
+        tp = round(price * (1 - 0.045), 6)
+    else:
+        sl = round(price * (1 - 0.025), 6)
+        tp = round(price * (1 + 0.045), 6)
+
     result = {
         "symbol": symbol,
         "price": price,
@@ -183,8 +191,8 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
         "indicators": prediction["indicators"],
         "model_used": prediction["model"],
         "entry_price": price,
-        "stop_loss": round(price * (1 - 0.025), 6) if price > 0 else 0,
-        "take_profit": round(price * (1 + 0.045), 6) if price > 0 else 0,
+        "stop_loss": sl if price > 0 else 0,
+        "take_profit": tp if price > 0 else 0,
         "leverage": prediction["leverage"],
         "timestamp": datetime.utcnow().isoformat(),
         "data_source": "real" if klines is not None else "simulated",
@@ -201,8 +209,8 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
 
     st = agent_states[symbol]
 
-    # Check for new entry
-    if st["active_pos"] is None and prediction["signal"] in ["LONG", "SHORT"] and price > 0:
+    # Check for new entry - Strict real data only
+    if st["active_pos"] is None and prediction["signal"] in ["LONG", "SHORT"] and price > 0 and prediction["data_quality"] == "real":
         leverage = prediction["leverage"]
         tp = result["take_profit"]
         sl = result["stop_loss"]
@@ -235,37 +243,68 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
         )
         asyncio.create_task(send_telegram_message(msg))
 
-    # Simulate trade close (10% chance if position exists)
-    if st["active_pos"] is not None and np.random.random() < 0.1:
+    # Monitoring active position for exit using real price
+    if st["active_pos"] is not None:
         pos = st["active_pos"]
-        entry_val = pos["size"]
-        exit_val = entry_val * (1 + np.random.uniform(-0.02, 0.05)) # Random PnL
-        trade_pnl = exit_val - entry_val
+        close_pos = False
+        exit_reason = ""
 
-        # Fee calculation (0.06% for entry + 0.06% for exit)
-        # Includes leverage since entry_val = base * leverage
-        total_fee = (entry_val + exit_val) * 0.0006
-        net_pnl = trade_pnl - total_fee
+        # Check TP/SL conditions
+        if pos["side"] == "LONG":
+            if price >= pos["tp"]:
+                close_pos = True
+                exit_reason = "🎯 TAKE PROFIT"
+            elif price <= pos["sl"]:
+                close_pos = True
+                exit_reason = "🛑 STOP LOSS"
+        elif pos["side"] == "SHORT":
+            if price <= pos["tp"]:
+                close_pos = True
+                exit_reason = "🎯 TAKE PROFIT"
+            elif price >= pos["sl"]:
+                close_pos = True
+                exit_reason = "🛑 STOP LOSS"
 
-        st["pnl"] += net_pnl
-        st["trades"] += 1
-        if net_pnl > 0:
-            st["wins"] += 1
+        if close_pos and price > 0:
+            entry_price = pos["entry_price"]
+            leverage = pos["leverage"]
+            size = pos["size"] # Total leveraged size
 
-        exit_price = round(price * (exit_val / entry_val), 6)
-        pnl_emoji = "🟢" if net_pnl > 0 else "🔴"
+            # PnL Calculation
+            if pos["side"] == "LONG":
+                price_diff_pct = (price - entry_price) / entry_price
+            else:
+                price_diff_pct = (entry_price - price) / entry_price
 
-        msg = (
-            f"<b>✅ İŞLEM KAPATILDI: {symbol}</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📥 Giriş Fiyatı: <code>{pos['entry_price']}</code>\n"
-            f"📤 Çıkış Fiyatı: <code>{exit_price}</code>\n"
-            f"💸 Fee (Kaldıraç Dahil): <b>-${total_fee:.2f}</b>\n"
-            f"💵 Net PnL: <b>{pnl_emoji} ${net_pnl:.2f}</b>\n"
-            f"📈 Toplam PnL: <b>${st['pnl']:.2f}</b>"
-        )
-        asyncio.create_task(send_telegram_message(msg))
-        st["active_pos"] = None
+            trade_pnl = size * price_diff_pct
+
+            # Fee calculation (0.06% for entry + 0.06% for exit)
+            entry_val = size
+            exit_val = size * (1 + price_diff_pct)
+            total_fee = (entry_val + exit_val) * 0.0006
+            net_pnl = trade_pnl - total_fee
+
+            st["pnl"] += net_pnl
+            st["trades"] += 1
+            if net_pnl > 0:
+                st["wins"] += 1
+
+            pnl_emoji = "🟢" if net_pnl > 0 else "🔴"
+            from datetime import timedelta
+            tr_time_exit = (datetime.utcnow() + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
+
+            msg = (
+                f"<b>✅ İŞLEM KAPATILDI: {symbol}</b> ({exit_reason})\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"📥 Giriş Fiyatı: <code>{entry_price}</code>\n"
+                f"📤 Çıkış Fiyatı: <code>{price}</code>\n"
+                f"💸 Fee (Kaldıraç Dahil): <b>-${total_fee:.2f}</b>\n"
+                f"💵 Net PnL: <b>{pnl_emoji} ${net_pnl:.2f}</b>\n"
+                f"📈 Toplam PnL: <b>${st['pnl']:.2f}</b>\n"
+                f"🕒 Zaman: <code>{tr_time_exit}</code> (TR)"
+            )
+            asyncio.create_task(send_telegram_message(msg))
+            st["active_pos"] = None
 
     result["pnl"] = round(st["pnl"], 2)
     result["trades"] = st["trades"]
