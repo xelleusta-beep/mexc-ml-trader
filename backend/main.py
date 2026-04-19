@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Optional, List
 from contextlib import asynccontextmanager
 
+import os
 import numpy as np
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -23,6 +24,28 @@ from ml_engine import MLEngine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+# ── Telegram Config ──────────────────────────────────────────────────────────
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+async def send_telegram_message(text: str):
+    logger.info(f"Telegram Message Triggered: {text[:100]}...")
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.info("Telegram credentials missing, skipping actual send")
+        return
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML"
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(url, json=payload, timeout=10)
+    except Exception as e:
+        logger.error(f"Telegram error: {e}")
 
 # ── Globals ──────────────────────────────────────────────────────────────────
 ml_engine = MLEngine()
@@ -167,17 +190,82 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
         "data_source": "real" if klines is not None else "simulated",
     }
 
-    # Update agent state (track PnL etc.)
+    # Update agent state (track positions and PnL)
     if symbol not in agent_states:
-        agent_states[symbol] = {"pnl": 0.0, "trades": 0, "wins": 0}
+        agent_states[symbol] = {
+            "pnl": 0.0,
+            "trades": 0,
+            "wins": 0,
+            "active_pos": None # Stores entry details
+        }
 
     st = agent_states[symbol]
-    if np.random.random() < 0.1:  # Simulate trade close 10% of the time
-        trade_pnl = np.random.uniform(-50, 120) if prediction["signal"] != "WAIT" else 0
-        st["pnl"] += trade_pnl
+
+    # Check for new entry
+    if st["active_pos"] is None and prediction["signal"] in ["LONG", "SHORT"] and price > 0:
+        leverage = prediction["leverage"]
+        tp = result["take_profit"]
+        sl = result["stop_loss"]
+        # TR Time (UTC+3)
+        from datetime import timedelta
+        tr_time = (datetime.utcnow() + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
+
+        st["active_pos"] = {
+            "entry_price": price,
+            "side": prediction["signal"],
+            "leverage": leverage,
+            "size": 100 * leverage, # Assuming 100 USDT base size
+            "timestamp": tr_time,
+            "tp": tp,
+            "sl": sl,
+            "indicators": ", ".join(prediction["indicators"])
+        }
+
+        msg = (
+            f"<b>🚀 İŞLEME GİRİLDİ: {symbol}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📍 Giriş Fiyatı: <code>{price}</code>\n"
+            f"↕️ Yön: <b>{prediction['signal']}</b>\n"
+            f"⚙️ Kaldıraç: <b>{leverage}x</b>\n"
+            f"💰 İşlem Büyüklüğü: <b>${100 * leverage}</b>\n"
+            f"🎯 TP: <code>{tp}</code>\n"
+            f"🛑 SL: <code>{sl}</code>\n"
+            f"🕒 Zaman: <code>{tr_time}</code> (TR)\n"
+            f"🔍 Koşullar: <i>{st['active_pos']['indicators']}</i>"
+        )
+        asyncio.create_task(send_telegram_message(msg))
+
+    # Simulate trade close (10% chance if position exists)
+    if st["active_pos"] is not None and np.random.random() < 0.1:
+        pos = st["active_pos"]
+        entry_val = pos["size"]
+        exit_val = entry_val * (1 + np.random.uniform(-0.02, 0.05)) # Random PnL
+        trade_pnl = exit_val - entry_val
+
+        # Fee calculation (0.06% for entry + 0.06% for exit)
+        # Includes leverage since entry_val = base * leverage
+        total_fee = (entry_val + exit_val) * 0.0006
+        net_pnl = trade_pnl - total_fee
+
+        st["pnl"] += net_pnl
         st["trades"] += 1
-        if trade_pnl > 0:
+        if net_pnl > 0:
             st["wins"] += 1
+
+        exit_price = round(price * (exit_val / entry_val), 6)
+        pnl_emoji = "🟢" if net_pnl > 0 else "🔴"
+
+        msg = (
+            f"<b>✅ İŞLEM KAPATILDI: {symbol}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📥 Giriş Fiyatı: <code>{pos['entry_price']}</code>\n"
+            f"📤 Çıkış Fiyatı: <code>{exit_price}</code>\n"
+            f"💸 Fee (Kaldıraç Dahil): <b>-${total_fee:.2f}</b>\n"
+            f"💵 Net PnL: <b>{pnl_emoji} ${net_pnl:.2f}</b>\n"
+            f"📈 Toplam PnL: <b>${st['pnl']:.2f}</b>"
+        )
+        asyncio.create_task(send_telegram_message(msg))
+        st["active_pos"] = None
 
     result["pnl"] = round(st["pnl"], 2)
     result["trades"] = st["trades"]
