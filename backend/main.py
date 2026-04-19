@@ -294,14 +294,8 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
                 close_pos = True
                 exit_reason = "🛑 STOP LOSS"
 
-        # Signal Reversal or Wait Condition
-        if not close_pos:
-            if pos["side"] == "LONG" and prediction["signal"] in ["SHORT", "WAIT"]:
-                close_pos = True
-                exit_reason = "🔄 SİNYAL DEĞİŞİMİ" if prediction["signal"] == "SHORT" else "⚠️ RİSK YÖNETİMİ (WAIT)"
-            elif pos["side"] == "SHORT" and prediction["signal"] in ["LONG", "WAIT"]:
-                close_pos = True
-                exit_reason = "🔄 SİNYAL DEĞİŞİMİ" if prediction["signal"] == "LONG" else "⚠️ RİSK YÖNETİMİ (WAIT)"
+        # Removed signal reversal exit logic as per user request
+        # Trades now only exit on TP or SL levels
 
         if close_pos and price > 0:
             entry_price = pos["entry_price"]
