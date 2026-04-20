@@ -1,0 +1,9 @@
+INFO:     Started server process [590748]
+INFO:     Waiting for application startup.
+2026-04-20 21:25:49,315 [INFO] 🚀 MEXC ML Trading System başlatılıyor...
+2026-04-20 21:25:49,315 [INFO] Scanner loop başladı
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+INFO:     Waiting for application shutdown.
+2026-04-20 21:25:49,411 [INFO] Sistem kapatılıyor...
+INFO:     Application shutdown complete.
