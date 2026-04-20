@@ -5,7 +5,7 @@ services:
     pythonVersion: 3.11.0
     region: frankfurt
     plan: free
-    buildCommand: pip install -r backend/requirements.txt
+    buildCommand: pip install --only-binary=all -r backend/requirements.txt
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     staticPublishPath: frontend
     healthCheckPath: /health
