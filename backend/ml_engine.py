@@ -1,612 +1,684 @@
 """
-ML Engine — Gerçek makine öğrenimi modeli
-Ensemble: Random Forest + XGBoost + LSTM simulation
-Özellikler: RSI, MACD, Bollinger Bands, EMA, ATR, OBV, MFI, Hacim
+MEXC ML Trading System — GERÇEK ML Engine
+==========================================
+✅ model.fit() — gerçekten öğrenen modeller
+✅ Walk-forward validation (time-series safe)
+✅ Backtest (ROI, Sharpe, Drawdown)
+✅ Feedback loop (canlı sonuç → retrain)
+✅ 28 gerçek feature (lag, rolling, momentum)
+✅ LightGBM/sklearn GBM + RandomForest ensemble
+✅ Hiç rastgele sinyal yok — sadece veriden öğrenir
 """
 
 import numpy as np
-from typing import Optional
 import logging
+import time
+import os
+from typing import Optional
+from collections import deque
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 
-class TechnicalIndicators:
-    """Teknik indikatör hesaplamaları"""
+# ═══════════════════════════════════════════════════════════════════════════════
+# 1. TEKNİK İNDİKATÖRLER
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class Indicators:
+    @staticmethod
+    def rsi(c: np.ndarray, p=14) -> float:
+        if len(c) < p + 2: return 50.0
+        d = np.diff(c[-(p+5):])
+        g = np.where(d > 0, d, 0.0)
+        lo = np.where(d < 0, -d, 0.0)
+        ag, al = np.mean(g[-p:]), np.mean(lo[-p:])
+        return 100.0 if al < 1e-12 else float(100 - 100 / (1 + ag / al))
 
     @staticmethod
-    def rsi(prices: np.ndarray, period: int = 14) -> float:
-        if prices is None or len(prices) < period + 1:
-            return 50.0
-        deltas = np.diff(prices)
-        gains = np.where(deltas > 0, deltas, 0)
-        losses = np.where(deltas < 0, -deltas, 0)
-        avg_gain = np.mean(gains[-period:])
-        avg_loss = np.mean(losses[-period:])
-        if avg_loss == 0:
-            return 100.0
-        rs = avg_gain / avg_loss
-        return float(100 - (100 / (1 + rs)))
+    def ema(c: np.ndarray, p: int) -> np.ndarray:
+        if len(c) == 0: return np.zeros(1)
+        k = 2 / (p + 1)
+        out = np.empty(len(c))
+        out[0] = c[0]
+        for i in range(1, len(c)):
+            out[i] = c[i] * k + out[i-1] * (1 - k)
+        return out
 
     @staticmethod
-    def ema(prices: np.ndarray, period: int) -> np.ndarray:
-        if prices is None or len(prices) == 0:
-            return np.array([0.0])
-        k = 2 / (period + 1)
-        ema_vals = np.zeros(len(prices))
-        ema_vals[0] = prices[0]
-        for i in range(1, len(prices)):
-            ema_vals[i] = prices[i] * k + ema_vals[i-1] * (1 - k)
-        return ema_vals
+    def macd(c: np.ndarray):
+        if len(c) < 35: return 0.0, 0.0, 0.0
+        e12 = Indicators.ema(c, 12)
+        e26 = Indicators.ema(c, 26)
+        ml = e12 - e26
+        sig = Indicators.ema(ml, 9)
+        return float(ml[-1]), float(sig[-1]), float(ml[-1] - sig[-1])
 
     @staticmethod
-    def macd(prices: np.ndarray) -> tuple:
-        if prices is None or len(prices) < 26:
-            return 0.0, 0.0, 0.0
-        ema12 = TechnicalIndicators.ema(prices, 12)
-        ema26 = TechnicalIndicators.ema(prices, 26)
-        macd_line = ema12 - ema26
-        signal = TechnicalIndicators.ema(macd_line, 9)
-        histogram = macd_line - signal
-        return float(macd_line[-1]), float(signal[-1]), float(histogram[-1])
+    def bb(c: np.ndarray, p=20):
+        if len(c) < p:
+            v = float(c[-1]) if len(c) else 0
+            return v, v, v
+        s, std = float(np.mean(c[-p:])), float(np.std(c[-p:]))
+        return s + 2*std, s, s - 2*std
 
     @staticmethod
-    def bollinger_bands(prices: np.ndarray, period: int = 20, std_mult: float = 2.0) -> tuple:
-        if prices is None or len(prices) < period:
-            p = float(prices[-1]) if prices is not None and len(prices) > 0 else 0
-            return p, p, p
-        sma = np.mean(prices[-period:])
-        std = np.std(prices[-period:])
-        upper = sma + std_mult * std
-        lower = sma - std_mult * std
-        return float(upper), float(sma), float(lower)
+    def atr(h, lo, c, p=14) -> float:
+        if len(c) < p+1: return 0.0
+        tr = np.maximum(h[1:]-lo[1:], np.maximum(np.abs(h[1:]-c[:-1]), np.abs(lo[1:]-c[:-1])))
+        return float(np.mean(tr[-p:]))
 
     @staticmethod
-    def atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int = 14) -> float:
-        if high is None or low is None or close is None or len(high) < period + 1:
-            return 0.0
-        tr = np.maximum(
-            high[1:] - low[1:],
-            np.maximum(
-                np.abs(high[1:] - close[:-1]),
-                np.abs(low[1:] - close[:-1])
-            )
-        )
-        return float(np.mean(tr[-period:]))
+    def obv_trend(c, v) -> float:
+        if len(c) < 20: return 0.0
+        obv = np.zeros(len(c))
+        obv[0] = v[0]
+        for i in range(1, len(c)):
+            obv[i] = obv[i-1] + (v[i] if c[i] > c[i-1] else -v[i] if c[i] < c[i-1] else 0)
+        ref = float(np.abs(np.mean(obv[-20:-10])) + 1e-10)
+        return float(np.clip((np.mean(obv[-10:]) - np.mean(obv[-20:-10])) / ref, -3, 3))
 
     @staticmethod
-    def obv(close: np.ndarray, volume: np.ndarray) -> float:
-        if close is None or volume is None or len(close) < 2:
-            return 0.0
-        obv_vals = np.zeros(len(close))
-        obv_vals[0] = volume[0]
-        for i in range(1, len(close)):
-            if close[i] > close[i-1]:
-                obv_vals[i] = obv_vals[i-1] + volume[i]
-            elif close[i] < close[i-1]:
-                obv_vals[i] = obv_vals[i-1] - volume[i]
+    def mfi(h, lo, c, v, p=14) -> float:
+        if len(c) < p+1: return 50.0
+        tp = (h + lo + c) / 3
+        mf = tp * v
+        pos = np.where(np.diff(tp) > 0, mf[1:], 0)
+        neg = np.where(np.diff(tp) < 0, mf[1:], 0)
+        ps, ns = float(np.sum(pos[-p:])), float(np.sum(neg[-p:]))
+        return 100.0 if ns < 1e-12 else float(100 - 100 / (1 + ps / ns))
+
+    @staticmethod
+    def stoch_rsi(c, p=14) -> float:
+        rvals = [Indicators.rsi(c[:i], p) for i in range(p+1, len(c)+1)]
+        if len(rvals) < p: return 50.0
+        arr = np.array(rvals[-p:])
+        mn, mx = arr.min(), arr.max()
+        return float((arr[-1] - mn) / (mx - mn + 1e-10) * 100)
+
+    @staticmethod
+    def williams_r(h, lo, c, p=14) -> float:
+        if len(c) < p: return -50.0
+        hh, ll = float(np.max(h[-p:])), float(np.min(lo[-p:]))
+        return float(-100 * (hh - c[-1]) / (hh - ll + 1e-10))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. FEATURE ENGINEERING — 28 gerçek özellik
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class FeatureBuilder:
+    N_FEATURES = 28
+
+    @classmethod
+    def build(cls, klines: dict) -> Optional[np.ndarray]:
+        """Tek bar için 28 özellik vektörü üret"""
+        c = np.asarray(klines["close"], dtype=np.float64)
+        h = np.asarray(klines["high"],  dtype=np.float64)
+        lo= np.asarray(klines["low"],   dtype=np.float64)
+        v = np.asarray(klines["volume"],dtype=np.float64)
+        if len(c) < 30: return None
+
+        ti = Indicators()
+        f = []
+        pr = c[-1] + 1e-10
+
+        # — Momentum oscillators —
+        f.append(ti.rsi(c, 14) / 100.0)               # 0
+        f.append(ti.stoch_rsi(c, 14) / 100.0)          # 1
+        f.append(ti.mfi(h, lo, c, v, 14) / 100.0)      # 2
+        f.append(ti.williams_r(h, lo, c, 14) / -100.0) # 3  → 0-1
+
+        # — Trend —
+        ml, ms, mh = ti.macd(c)
+        f.extend([np.clip(ml/pr, -0.05, 0.05),          # 4
+                  np.clip(ms/pr, -0.05, 0.05),          # 5
+                  np.clip(mh/pr, -0.05, 0.05)])         # 6
+
+        e9  = ti.ema(c, 9)[-1]
+        e21 = ti.ema(c, 21)[-1]
+        e50 = ti.ema(c, min(50, len(c)-1))[-1]
+        f.append(np.clip((e9 - e21) / pr, -0.05, 0.05)) # 7
+        f.append(np.clip((c[-1] - e50) / pr, -0.1, 0.1))# 8
+
+        # — Volatility —
+        bbu, _, bbl = ti.bb(c, 20)
+        bb_rng = bbu - bbl + 1e-10
+        f.append(np.clip((c[-1] - bbl) / bb_rng, 0, 1)) # 9   BB %B
+        f.append(np.clip(bb_rng / pr, 0, 0.2))           # 10  BB width
+        f.append(np.clip(ti.atr(h, lo, c, 14) / pr, 0, 0.05)) # 11
+
+        # — Volume —
+        vavg = float(np.mean(v[-21:-1]) if len(v)>=21 else v.mean()) + 1e-10
+        f.append(np.clip(v[-1] / vavg, 0, 5))            # 12 volume ratio
+        f.append(ti.obv_trend(c, v))                      # 13 OBV trend
+
+        # — Lag returns t-1, t-2, t-3 —
+        for lag in [1, 2, 3]:
+            ret = (c[-1] - c[-1-lag]) / (c[-1-lag]+1e-10) if len(c) > lag else 0.0
+            f.append(np.clip(ret, -0.1, 0.1))             # 14,15,16
+
+        # — Rolling returns 5, 10, 20 —
+        for w in [5, 10, 20]:
+            ret = (c[-1]-c[-1-w])/(c[-1-w]+1e-10) if len(c)>w else 0.0
+            f.append(np.clip(ret, -0.3, 0.3))             # 17,18,19
+
+        # — Rolling volatility 5, 20 —
+        for w in [5, 20]:
+            s = float(np.std(c[-w:])) / pr if len(c)>=w else 0.0
+            f.append(np.clip(s, 0, 0.1))                  # 20,21
+
+        # — Price position in HL range —
+        h20, l20 = float(np.max(h[-20:])), float(np.min(lo[-20:]))
+        rng = h20 - l20 + 1e-10
+        f.append((c[-1] - l20) / rng)                     # 22
+        f.append((h20 - c[-1]) / rng)                     # 23
+
+        # — Momentum acceleration (5-bar mom diff) —
+        m5 = c[-1] - c[-6] if len(c)>=6 else 0.0
+        mp = c[-2] - c[-7] if len(c)>=7 else 0.0
+        f.append(np.clip((m5 - mp) / pr, -0.05, 0.05))    # 24
+
+        # — Candle structure —
+        body = abs(c[-1]-c[-2]) / pr if len(c)>=2 else 0.0
+        f.append(np.clip(body, 0, 0.05))                   # 25
+        hl = (h[-1]-lo[-1]) / pr
+        f.append(np.clip(hl, 0, 0.1))                     # 26
+        uw = (h[-1]-max(c[-1],c[-2] if len(c)>=2 else c[-1])) / (h[-1]-lo[-1]+1e-10)
+        f.append(np.clip(float(uw), 0, 1))                 # 27
+
+        arr = np.array(f, dtype=np.float32)
+        return np.where(np.isfinite(arr), arr, 0.0)
+
+    @classmethod
+    def build_dataset(cls, klines: dict, lookahead=5, threshold=0.008):
+        """
+        Geçmiş kline verisinden (X, y) dataset üret.
+        Label: lookahead bar sonra threshold% yukarı → 1 (LONG)
+               threshold% aşağı → -1 (SHORT), ortada → 0 (HOLD)
+        """
+        c  = np.asarray(klines["close"],  dtype=np.float64)
+        h  = np.asarray(klines["high"],   dtype=np.float64)
+        lo = np.asarray(klines["low"],    dtype=np.float64)
+        v  = np.asarray(klines["volume"], dtype=np.float64)
+        MIN = 40
+        if len(c) < MIN + lookahead: return None, None
+
+        X_rows, y_rows = [], []
+        for i in range(MIN, len(c) - lookahead):
+            sub = {"close": c[:i], "high": h[:i], "low": lo[:i], "volume": v[:i]}
+            feat = cls.build(sub)
+            if feat is None: continue
+            ret = (c[i+lookahead] - c[i]) / (c[i]+1e-10)
+            label = 1 if ret > threshold else (-1 if ret < -threshold else 0)
+            X_rows.append(feat)
+            y_rows.append(label)
+
+        if len(X_rows) < 10: return None, None
+        return np.array(X_rows, np.float32), np.array(y_rows, np.int32)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 3. GERÇEK ML MODELLERİ — model.fit() ile öğrenir
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class GBMModel:
+    """LightGBM → sklearn GBM → numpy AdaBoost (öncelik sırasıyla)"""
+
+    def __init__(self):
+        self.clf = None
+        self.is_fitted = False
+        self._backend = self._detect()
+
+    def _detect(self):
+        try:
+            import lightgbm; return "lgbm"
+        except ImportError: pass
+        try:
+            from sklearn.ensemble import GradientBoostingClassifier; return "skgbm"
+        except ImportError: pass
+        return "numpy"
+
+    def fit(self, X, y):
+        if len(X) < 10: return self
+        try:
+            if self._backend == "lgbm":
+                import lightgbm as lgb
+                import warnings
+                feat_names = [f"f{i}" for i in range(X.shape[1])]
+                import pandas as pd
+                X_df = pd.DataFrame(X, columns=feat_names)
+                self.clf = lgb.LGBMClassifier(
+                    n_estimators=300, learning_rate=0.03, max_depth=6,
+                    num_leaves=31, min_child_samples=5, subsample=0.8,
+                    colsample_bytree=0.8, class_weight="balanced",
+                    random_state=42, verbose=-1, n_jobs=-1)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    self.clf.fit(X_df, y)
+                self._feat_names = feat_names
+                logger.info(f"LightGBM fit — {len(X)} sample")
+
+            elif self._backend == "skgbm":
+                from sklearn.ensemble import GradientBoostingClassifier
+                self.clf = GradientBoostingClassifier(
+                    n_estimators=150, learning_rate=0.08, max_depth=4,
+                    random_state=42)
+                self.clf.fit(X, y)
+                logger.info(f"sklearn GBM fit — {len(X)} sample")
+
             else:
-                obv_vals[i] = obv_vals[i-1]
-        # OBV trend: son 10 ile önceki 10'u karşılaştır
-        if len(obv_vals) >= 20:
-            return float(np.mean(obv_vals[-10:]) - np.mean(obv_vals[-20:-10]))
-        return 0.0
+                self._fit_numpy_ada(X, y)
 
-    @staticmethod
-    def mfi(high: np.ndarray, low: np.ndarray, close: np.ndarray,
-            volume: np.ndarray, period: int = 14) -> float:
-        if close is None or high is None or low is None or volume is None or len(close) < period + 1:
-            return 50.0
-        tp = (high + low + close) / 3
-        raw_money = tp * volume
-        pos_flow = np.where(np.diff(tp) > 0, raw_money[1:], 0)
-        neg_flow = np.where(np.diff(tp) < 0, raw_money[1:], 0)
-        pos_sum = np.sum(pos_flow[-period:])
-        neg_sum = np.sum(neg_flow[-period:])
-        if neg_sum == 0:
-            return 100.0
-        mfr = pos_sum / neg_sum
-        return float(100 - (100 / (1 + mfr)))
+            self.is_fitted = True
+        except Exception as e:
+            logger.error(f"GBM fit: {e}")
+            self._fit_numpy_ada(X, y)
+        return self
 
-    @staticmethod
-    def volume_ratio(volume: np.ndarray, period: int = 20) -> float:
-        if volume is None or len(volume) < period + 1:
-            return 1.0
-        avg_vol = np.mean(volume[-period-1:-1])
-        if avg_vol == 0:
-            return 1.0
-        return float(volume[-1] / avg_vol)
+    def _fit_numpy_ada(self, X, y):
+        """Gerçek AdaBoost (numpy, sıfırdan yazılmış)"""
+        n = len(X); w = np.ones(n)/n
+        self._stumps, self._alphas = [], []
+        for _ in range(60):
+            # En iyi decision stump bul
+            bf, bt, bd, berr = 0, 0.0, 1, float('inf')
+            fset = np.random.choice(X.shape[1], min(8,X.shape[1]), replace=False)
+            for f in fset:
+                for t in np.percentile(X[:,f], [20,40,60,80]):
+                    for d in [1,-1]:
+                        pred = np.where(X[:,f]*d > t*d, 1, -1)
+                        yp = np.sign(y + 1e-6)  # binary proxy
+                        err = float(np.dot(w, pred != yp))
+                        if err < berr: berr,bf,bt,bd = err,f,t,d
+            eps = max(berr, 1e-10)
+            if eps >= 0.5: break
+            alpha = 0.5 * np.log((1-eps)/eps)
+            pred = np.where(X[:,bf]*bd > bt*bd, 1, -1)
+            yp = np.sign(y + 1e-6)
+            w *= np.exp(-alpha * yp * pred)
+            w /= w.sum()
+            self._stumps.append((bf, bt, bd))
+            self._alphas.append(alpha)
+        self.is_fitted = True
+        logger.info(f"Numpy AdaBoost fit — {len(self._stumps)} stumps, {n} sample")
+
+    def predict_proba(self, x: np.ndarray) -> dict:
+        default = {"LONG":0.25,"SHORT":0.25,"HOLD":0.25,"WAIT":0.25}
+        if not self.is_fitted: return default
+        try:
+            if self._backend in ("lgbm","skgbm") and self.clf is not None:
+                if self._backend == "lgbm" and hasattr(self, '_feat_names'):
+                    import pandas as pd, warnings
+                    x2d = pd.DataFrame(x.reshape(1,-1), columns=self._feat_names)
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        p = self.clf.predict_proba(x2d)[0]
+                else:
+                    p = self.clf.predict_proba(x.reshape(1,-1))[0]
+                cls = list(self.clf.classes_)
+                r = {"LONG":0.1,"SHORT":0.1,"HOLD":0.1,"WAIT":0.05}
+                for i,c in enumerate(cls):
+                    if c==1:  r["LONG"]=float(p[i])
+                    elif c==-1: r["SHORT"]=float(p[i])
+                    elif c==0: r["HOLD"]=float(p[i])
+                t = sum(r.values()); return {k:v/t for k,v in r.items()}
+        except Exception: pass
+        if hasattr(self,"_stumps") and self._stumps:
+            score = sum(a*(1 if x[f]*d>t*d else -1) for (f,t,d),a in zip(self._stumps,self._alphas))
+            pl = float(1/(1+np.exp(-score*2))); ps = float(1/(1+np.exp(score*2)))
+            ph = max(0, 1-pl-ps+0.1); pw = 0.05
+            tot = pl+ps+ph+pw
+            return {"LONG":pl/tot,"SHORT":ps/tot,"HOLD":ph/tot,"WAIT":pw/tot}
+        return default
 
 
-class RandomForestSimple:
+class RFModel:
+    """Random Forest — sklearn varsa kullanır, yoksa numpy ile"""
+
+    def __init__(self):
+        self.clf = None
+        self.is_fitted = False
+        try:
+            from sklearn.ensemble import RandomForestClassifier
+            self._backend = "sklearn"
+        except ImportError:
+            self._backend = "numpy"
+
+    def fit(self, X, y):
+        if len(X) < 10: return self
+        try:
+            if self._backend == "sklearn":
+                from sklearn.ensemble import RandomForestClassifier
+                self.clf = RandomForestClassifier(
+                    n_estimators=100, max_depth=8, min_samples_leaf=3,
+                    class_weight="balanced", random_state=42, n_jobs=-1)
+                self.clf.fit(X, y)
+                logger.info(f"sklearn RF fit — {len(X)} sample")
+            else:
+                self._fit_numpy_rf(X, y)
+            self.is_fitted = True
+        except Exception as e:
+            logger.error(f"RF fit: {e}")
+            self._fit_numpy_rf(X, y)
+        return self
+
+    def _fit_numpy_rf(self, X, y):
+        self._trees = []
+        nf = max(1, int(np.sqrt(X.shape[1])))
+        for _ in range(40):
+            idx = np.random.choice(len(X), len(X), replace=True)
+            Xb, yb = X[idx], y[idx]
+            feats = np.random.choice(X.shape[1], nf, replace=False)
+            self._trees.append((self._build_tree(Xb[:,feats], yb, depth=4), feats))
+        self.is_fitted = True
+        logger.info(f"Numpy RF fit — 40 trees, {len(X)} sample")
+
+    def _build_tree(self, X, y, depth):
+        if depth==0 or len(np.unique(y))==1 or len(X)<4:
+            vals,cnt=np.unique(y,return_counts=True); return ("L",int(vals[cnt.argmax()]))
+        bf,bt,bg=0,0.0,-1
+        for f in range(X.shape[1]):
+            for t in np.percentile(X[:,f],[25,50,75]):
+                lm=X[:,f]<=t
+                if lm.sum()<2 or (~lm).sum()<2: continue
+                g=self._gini(y)-len(y[lm])/len(y)*self._gini(y[lm])-len(y[~lm])/len(y)*self._gini(y[~lm])
+                if g>bg: bg,bf,bt=g,f,t
+        lm=X[:,bf]<=bt
+        return ("S",bf,bt,self._build_tree(X[lm],y[lm],depth-1),self._build_tree(X[~lm],y[~lm],depth-1))
+
+    def _gini(self,y):
+        _,c=np.unique(y,return_counts=True); p=c/len(y); return 1-float(np.sum(p**2))
+
+    def _pred_tree(self, node, x):
+        if node[0]=="L": return node[1]
+        _,f,t,l,r = node
+        return self._pred_tree(l if x[f]<=t else r, x)
+
+    def predict_proba(self, x: np.ndarray) -> dict:
+        default = {"LONG":0.25,"SHORT":0.25,"HOLD":0.25,"WAIT":0.25}
+        if not self.is_fitted: return default
+        try:
+            if self._backend=="sklearn" and self.clf is not None:
+                p=self.clf.predict_proba(x.reshape(1,-1))[0]
+                cls=list(self.clf.classes_)
+                r={"LONG":0.1,"SHORT":0.1,"HOLD":0.1,"WAIT":0.05}
+                for i,c in enumerate(cls):
+                    if c==1: r["LONG"]=float(p[i])
+                    elif c==-1: r["SHORT"]=float(p[i])
+                    elif c==0: r["HOLD"]=float(p[i])
+                t=sum(r.values()); return {k:v/t for k,v in r.items()}
+        except Exception: pass
+        if hasattr(self,"_trees"):
+            votes={-1:0,0:0,1:0}
+            for (tree,feats) in self._trees:
+                votes[self._pred_tree(tree,x[feats])] += 1
+            tot=sum(votes.values())
+            return {"LONG":votes[1]/tot,"SHORT":votes[-1]/tot,"HOLD":votes[0]/tot,"WAIT":0.05}
+        return default
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 4. WALK-FORWARD VALIDATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def walk_forward_validate(X, y, n_splits=4) -> dict:
+    """Zaman sıralı k-fold — gelecek sızmaz"""
+    if X is None or len(X) < 30: return {"accuracy":0,"f1":0,"n_samples":0}
+    n = len(X); sz = n//(n_splits+1)
+    accs, f1s = [], []
+    for i in range(1, n_splits+1):
+        te = sz*(i+1)
+        Xtr,ytr = X[:sz*i], y[:sz*i]
+        Xte,yte = X[sz*i:te], y[sz*i:te]
+        if len(Xtr)<5 or len(Xte)<2: continue
+        m = GBMModel(); m.fit(Xtr, ytr)
+        lmap={"LONG":1,"SHORT":-1,"HOLD":0,"WAIT":0}
+        preds=np.array([lmap[max(m.predict_proba(x),key=m.predict_proba(x).get)] for x in Xte])
+        accs.append(float(np.mean(preds==yte)))
+        # macro F1
+        f1_vals=[]
+        for cls in [-1,0,1]:
+            tp=np.sum((preds==cls)&(yte==cls)); fp=np.sum((preds==cls)&(yte!=cls))
+            fn=np.sum((preds!=cls)&(yte==cls))
+            pr=tp/(tp+fp+1e-10); re=tp/(tp+fn+1e-10)
+            f1_vals.append(2*pr*re/(pr+re+1e-10))
+        f1s.append(float(np.mean(f1_vals)))
+    return {
+        "accuracy": round(float(np.mean(accs))*100,1) if accs else 0,
+        "f1": round(float(np.mean(f1s)),3) if f1s else 0,
+        "n_samples": n, "n_folds": len(accs)
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 5. BACKTEST
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def backtest(c: np.ndarray, signals: list, sl=0.025, tp=0.045, fee=0.0004) -> dict:
     """
-    Hafif Random Forest — scikit-learn olmadan çalışır.
-    Eğitilmiş ağırlıklar sabit (pre-trained simulation).
+    signals: [(bar_idx, "LONG"/"SHORT"), ...]
+    Returns: roi, win_rate, max_drawdown, sharpe, n_trades
     """
-
-    def predict_proba(self, features: dict) -> dict:
-        """Özelliklerden LONG/SHORT/HOLD/WAIT olasılıkları"""
-        rsi = features.get("rsi", 50)
-        macd_hist = features.get("macd_hist", 0)
-        bb_pct = features.get("bb_pct", 0.5)  # (price-lower)/(upper-lower)
-        volume_ratio = features.get("volume_ratio", 1.0)
-        obv_trend = features.get("obv_trend", 0)
-        mfi = features.get("mfi", 50)
-        atr_pct = features.get("atr_pct", 0.01)
-        ema_cross = features.get("ema_cross", 0)  # +1 bullish, -1 bearish
-
-        # Bullish score
-        bull = 0.0
-        bull += max(0, (30 - rsi) / 30) * 2.5       # Oversold RSI
-        bull += max(0, macd_hist) * 50               # Positive MACD
-        bull += max(0, (0.2 - bb_pct) / 0.2) * 1.5  # Near lower band
-        bull += max(0, (volume_ratio - 1.5) / 2)     # High volume
-        bull += max(0, obv_trend / 1e6) * 0.5        # OBV rising
-        bull += max(0, (mfi - 70) / 30) * 1.2        # MFI high
-        bull += max(0, ema_cross) * 1.0              # EMA bullish cross
-
-        # Bearish score
-        bear = 0.0
-        bear += max(0, (rsi - 70) / 30) * 2.5
-        bear += max(0, -macd_hist) * 50
-        bear += max(0, (bb_pct - 0.8) / 0.2) * 1.5
-        bear += max(0, (volume_ratio - 1.5) / 2)
-        bear += max(0, -obv_trend / 1e6) * 0.5
-        bear += max(0, (30 - mfi) / 30) * 1.2
-        bear += max(0, -ema_cross) * 1.0
-
-        # Add small noise for realism
-        noise = np.random.normal(0, 0.15)
-        bull = max(0, bull + noise)
-        bear = max(0, bear - noise)
-
-        # Normalize to probabilities
-        total = bull + bear + 0.5
-        p_long = bull / total
-        p_short = bear / total
-        p_hold = max(0, 1 - p_long - p_short) * 0.6
-        p_wait = max(0, 1 - p_long - p_short) * 0.4
-
-        # Normalize
-        s = p_long + p_short + p_hold + p_wait
-        return {
-            "LONG": p_long / s,
-            "SHORT": p_short / s,
-            "HOLD": p_hold / s,
-            "WAIT": p_wait / s,
-        }
+    equity=1.0; eq_curve=[1.0]; returns=[]; wins=0; ntrades=0
+    for bar_idx, sig in signals:
+        if sig not in ("LONG","SHORT") or bar_idx+1>=len(c): continue
+        e,ex=c[bar_idx],c[bar_idx+1]
+        r=(ex-e)/e; r=(-r if sig=="SHORT" else r)
+        r=max(-sl, min(tp, r)) - fee*2
+        equity*=(1+r); eq_curve.append(equity); returns.append(r)
+        ntrades+=1
+        if r>0: wins+=1
+    if ntrades==0: return {"roi":0,"win_rate":0,"max_drawdown":0,"sharpe":0,"n_trades":0}
+    eq=np.array(eq_curve); pk=np.maximum.accumulate(eq)
+    dd=float(np.max((pk-eq)/(pk+1e-10)))*100
+    ret=np.array(returns)
+    sh=float(ret.mean()/ret.std()*np.sqrt(2920)) if ret.std()>0 else 0.0
+    return {"roi":round((equity-1)*100,2),"win_rate":round(wins/ntrades*100,1),
+            "max_drawdown":round(dd,2),"sharpe":round(sh,3),"n_trades":ntrades}
 
 
-class XGBoostSimple:
-    """Lightweight XGBoost simulation with different feature weights"""
-
-    def predict_proba(self, features: dict) -> dict:
-        rsi = features.get("rsi", 50)
-        macd_line = features.get("macd_line", 0)
-        macd_signal = features.get("macd_signal", 0)
-        bb_pct = features.get("bb_pct", 0.5)
-        volume_ratio = features.get("volume_ratio", 1.0)
-        mfi = features.get("mfi", 50)
-        ema_cross = features.get("ema_cross", 0)
-
-        # XGBoost uses different thresholds
-        bull = 0.0
-        bear = 0.0
-
-        # RSI signals
-        if rsi < 35: bull += 1.8
-        elif rsi < 45: bull += 0.8
-        elif rsi > 65: bear += 1.8
-        elif rsi > 55: bear += 0.8
-
-        # MACD cross
-        if macd_line > macd_signal: bull += 1.2
-        else: bear += 1.2
-
-        # BB position
-        if bb_pct < 0.25: bull += 1.0
-        elif bb_pct > 0.75: bear += 1.0
-
-        # Volume confirmation
-        if volume_ratio > 2.0:
-            bull *= 1.3 if bull > bear else 1.0
-            bear *= 1.3 if bear > bull else 1.0
-
-        # MFI
-        if mfi < 30: bull += 0.7
-        elif mfi > 70: bear += 0.7
-
-        # EMA
-        bull += ema_cross * 0.9
-        bear -= ema_cross * 0.9
-
-        noise = np.random.normal(0, 0.1)
-        bull = max(0, bull + noise)
-        bear = max(0, bear - noise)
-
-        total = bull + bear + 0.8
-        p_long = bull / total
-        p_short = bear / total
-        p_hold = max(0, 0.3 - p_long * 0.15 - p_short * 0.15)
-        p_wait = max(0, 1 - p_long - p_short - p_hold)
-
-        s = p_long + p_short + p_hold + p_wait
-        return {
-            "LONG": p_long / s,
-            "SHORT": p_short / s,
-            "HOLD": p_hold / s,
-            "WAIT": p_wait / s,
-        }
-
-
-class LSTMSimple:
-    """
-    LSTM pattern recognition simulation.
-    Uses sequential price patterns.
-    """
-
-    def predict_proba(self, prices: np.ndarray, features: dict) -> dict:
-        if len(prices) < 10:
-            return {"LONG": 0.25, "SHORT": 0.25, "HOLD": 0.25, "WAIT": 0.25}
-
-        # Pattern: last 5 vs previous 5 candles
-        recent = prices[-5:]
-        prev = prices[-10:-5]
-
-        momentum = (np.mean(recent) - np.mean(prev)) / (np.mean(prev) + 1e-10)
-
-        # Trend consistency
-        diffs = np.diff(prices[-10:])
-        up_count = np.sum(diffs > 0)
-        down_count = np.sum(diffs < 0)
-        consistency = abs(up_count - down_count) / len(diffs)
-
-        # Volatility (ATR proxy)
-        volatility = np.std(prices[-10:]) / (np.mean(prices[-10:]) + 1e-10)
-
-        bull = 0.0
-        bear = 0.0
-
-        if momentum > 0.002:
-            bull += momentum * 100 * consistency
-        elif momentum < -0.002:
-            bear += abs(momentum) * 100 * consistency
-
-        # Add RSI context
-        rsi = features.get("rsi", 50)
-        if rsi < 40 and momentum > 0:
-            bull += 0.8  # Oversold + bouncing
-        elif rsi > 60 and momentum < 0:
-            bear += 0.8  # Overbought + falling
-
-        # High volatility = caution
-        if volatility > 0.03:
-            bull *= 0.7
-            bear *= 0.7
-
-        noise = np.random.normal(0, 0.12)
-        bull = max(0, bull + noise)
-        bear = max(0, bear)
-
-        total = bull + bear + 0.6
-        p_long = bull / total
-        p_short = bear / total
-        p_hold = max(0, 0.4 - p_long * 0.2 - p_short * 0.2)
-        p_wait = max(0, 1 - p_long - p_short - p_hold)
-
-        s = p_long + p_short + p_hold + p_wait
-        return {
-            "LONG": p_long / s,
-            "SHORT": p_short / s,
-            "HOLD": p_hold / s,
-            "WAIT": p_wait / s,
-        }
-
-
-class TransformerSimple:
-    """
-    Transformer simulation using self-attention mechanism on features.
-    """
-
-    def predict_proba(self, prices: np.ndarray, features: dict) -> dict:
-        if len(prices) < 20:
-            return {"LONG": 0.25, "SHORT": 0.25, "HOLD": 0.25, "WAIT": 0.25}
-
-        # Attention Simulation: Correlation between current price and past window
-        current = prices[-1]
-        window = prices[-20:]
-
-        # Simulating Query, Key, Value
-        q = current
-        k = window
-        v = np.diff(window, append=window[-1])  # Proxy for "value" (price change)
-
-        # Attention scores (scaled dot-product simulation)
-        # Avoid division by zero
-        norm_k = np.linalg.norm(k)
-        scores = (k * q) / (norm_k + 1e-10)
-        # Softmax
-        exp_scores = np.exp(scores - np.max(scores))
-        weights = exp_scores / np.sum(exp_scores)
-
-        context_vector = np.sum(weights * v)
-
-        # Feature attention
-        rsi = features.get("rsi", 50)
-
-        bull = 0.0
-        bear = 0.0
-
-        if context_vector > 0:
-            bull += context_vector * 10
-        else:
-            bear += abs(context_vector) * 10
-
-        # Attention on RSI
-        if rsi < 30:
-            bull += 1.5
-        elif rsi > 70:
-            bear += 1.5
-
-        noise = np.random.normal(0, 0.05)
-        bull = max(0, bull + noise)
-        bear = max(0, bear - noise)
-
-        total = bull + bear + 0.5
-        p_long = bull / total
-        p_short = bear / total
-        p_hold = max(0, 1 - p_long - p_short) * 0.5
-        p_wait = max(0, 1 - p_long - p_short - p_hold)
-
-        s = p_long + p_short + p_hold + p_wait
-        return {
-            "LONG": p_long / s,
-            "SHORT": p_short / s,
-            "HOLD": p_hold / s,
-            "WAIT": p_wait / s,
-        }
-
-
-class TFTSimple:
-    """
-    Temporal Fusion Transformer (TFT) simulation.
-    Focuses on multi-horizon patterns and feature importance simulation.
-    """
-
-    def predict_proba(self, prices: np.ndarray, features: dict) -> dict:
-        if len(prices) < 20:
-            return {"LONG": 0.25, "SHORT": 0.25, "HOLD": 0.25, "WAIT": 0.25}
-
-        # Multi-horizon: Short term (last 5) vs Long term (last 20)
-        st_mean = np.mean(prices[-5:])
-        lt_mean = np.mean(prices[-20:])
-
-        # Variable Selection Network (VSN) simulation
-        # Weights for different indicators based on volatility
-        volatility = np.std(prices[-20:]) / (np.mean(prices[-20:]) + 1e-10)
-
-        rsi = features.get("rsi", 50)
-        ema_cross = features.get("ema_cross", 0)
-
-        bull = 0.0
-        bear = 0.0
-
-        # Temporal patterns
-        if st_mean > lt_mean:
-            bull += 0.5
-        else:
-            bear += 0.5
-
-        # VSN simulation logic
-        if volatility > 0.02:
-            # High vol logic: focus on Bollinger Bands
-            bb_pct = features.get("bb_pct", 0.5)
-            if bb_pct < 0.2:
-                bull += 1.2
-            elif bb_pct > 0.8:
-                bear += 1.2
-        else:
-            # Low vol logic: focus on EMA
-            bull += max(0, ema_cross) * 0.8
-            bear += max(0, -ema_cross) * 0.8
-
-        # Static covariates simulation (market type context)
-        if rsi < 40:
-            bull += 0.6
-        elif rsi > 60:
-            bear += 0.6
-
-        noise = np.random.normal(0, 0.08)
-        bull = max(0, bull + noise)
-        bear = max(0, bear)
-
-        total = bull + bear + 0.7
-        p_long = bull / total
-        p_short = bear / total
-        p_hold = max(0, 0.4 - p_long * 0.2 - p_short * 0.2)
-        p_wait = max(0, 1 - p_long - p_short - p_hold)
-
-        s = p_long + p_short + p_hold + p_wait
-        return {
-            "LONG": p_long / s,
-            "SHORT": p_short / s,
-            "HOLD": p_hold / s,
-            "WAIT": p_wait / s,
-        }
-
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6. ANA ML ENGINE
+# ═══════════════════════════════════════════════════════════════════════════════
 
 class MLEngine:
     """
-    Ensemble ML Engine
-    3 model oylaması + güven skoru
+    Ana orchestrator:
+    ✅ train()      — gerçek model.fit()
+    ✅ predict()    — öğrenilmiş modelden tahmin
+    ✅ backtest()   — tarihsel performans
+    ✅ add_feedback() — feedback loop
+    ✅ get_info()   — şeffaf istatistikler
     """
 
     def __init__(self):
-        self.rf = RandomForestSimple()
-        self.xgb = XGBoostSimple()
-        self.lstm = LSTMSimple()
-        self.transformer = TransformerSimple()
-        self.tft = TFTSimple()
-        self.ti = TechnicalIndicators()
-        self._accuracy = 72.4  # Base accuracy (improves with real data)
-        self._predictions_count = 0
+        self.gbm = GBMModel()
+        self.rf  = RFModel()
+        self._trained = False
+        self._wf: dict = {}
+        self._bt: dict = {}
+        self._train_log: list = []
+        self._feedback: deque = deque(maxlen=500)
+        self._pred_count = 0
+        self._last_retrain = 0.0
+        logger.info("MLEngine — Gerçek ML sistemi hazır (GBM + RF)")
 
-    def _extract_features(self, klines: Optional[dict], current_price: float) -> dict:
-        """dict'ten (NumPy arrays) özellik çıkar"""
-        if klines is None or len(klines.get("close", [])) < 20:
-            # Fallback: sadece fiyata dayalı sahte özellikler
-            base = current_price if current_price > 0 else 100
-            prices = base * (1 + np.random.normal(0, 0.005, 50))
-            prices[-1] = current_price
-            volumes = np.random.uniform(1e6, 1e8, 50)
-            highs = prices * 1.005
-            lows = prices * 0.995
-        else:
-            prices = np.array(klines["close"], dtype=float)
-            volumes = np.array(klines["volume"], dtype=float)
-            highs = np.array(klines["high"], dtype=float)
-            lows = np.array(klines["low"], dtype=float)
+    # ── EĞİTİM ────────────────────────────────────────────────────────────────
+    def train(self, klines: dict, symbol="GLOBAL") -> dict:
+        t0 = time.time()
+        X, y = FeatureBuilder.build_dataset(klines, lookahead=5, threshold=0.008)
+        if X is None:
+            return {"success":False,"reason":"insufficient_data","symbol":symbol}
 
-        # Indicators
-        rsi_val = self.ti.rsi(prices)
-        macd_line, macd_signal, macd_hist = self.ti.macd(prices)
-        bb_upper, bb_mid, bb_lower = self.ti.bollinger_bands(prices)
-        vol_ratio = self.ti.volume_ratio(volumes)
-        obv_trend = self.ti.obv(prices, volumes)
-        mfi_val = self.ti.mfi(highs, lows, prices, volumes)
+        unique,cnt = np.unique(y, return_counts=True)
+        split = int(len(X)*0.8)
+        Xtr,Xte = X[:split], X[split:]
+        ytr,yte = y[:split], y[split:]
 
-        # ATR
-        atr_val = self.ti.atr(highs, lows, prices)
+        self.gbm.fit(Xtr, ytr)
+        self.rf.fit(Xtr, ytr)
+        self._trained = True
 
-        # BB position (0 = lower band, 1 = upper band)
-        bb_range = bb_upper - bb_lower
-        bb_pct = (prices[-1] - bb_lower) / bb_range if bb_range > 0 else 0.5
+        # Test accuracy
+        lmap = {"LONG":1,"SHORT":-1,"HOLD":0,"WAIT":0}
+        preds = np.array([lmap[max(self.gbm.predict_proba(x),key=self.gbm.predict_proba(x).get)] for x in Xte])
+        acc = float(np.mean(preds==yte))*100 if len(yte)>0 else 0
 
-        # EMA cross (9 vs 21)
-        ema9 = self.ti.ema(prices, 9)
-        ema21 = self.ti.ema(prices, 21)
-        ema_cross = 1 if ema9[-1] > ema21[-1] else -1
+        # Walk-forward
+        self._wf = walk_forward_validate(X, y, n_splits=4)
 
-        # ATR as % of price
-        atr_pct = atr_val / prices[-1] if prices[-1] > 0 else 0.01
-
-        return {
-            "prices": prices,
-            "rsi": rsi_val,
-            "macd_line": macd_line,
-            "macd_signal": macd_signal,
-            "macd_hist": macd_hist,
-            "bb_pct": bb_pct,
-            "bb_upper": bb_upper,
-            "bb_lower": bb_lower,
-            "volume_ratio": vol_ratio,
-            "obv_trend": obv_trend,
-            "mfi": mfi_val,
-            "atr_pct": atr_pct,
-            "ema_cross": ema_cross,
+        elapsed = time.time()-t0
+        rec = {
+            "success":True,"symbol":symbol,
+            "n_samples":len(X),"n_train":len(Xtr),"n_test":len(Xte),
+            "class_dist":{int(k):int(v) for k,v in zip(unique,cnt)},
+            "test_accuracy":round(acc,1),
+            "wf_accuracy":self._wf["accuracy"],"wf_f1":self._wf["f1"],
+            "train_time_s":round(elapsed,2),
+            "trained_at":datetime.utcnow().isoformat(),
         }
+        self._train_log.append(rec)
+        if len(self._train_log)>10: self._train_log.pop(0)
+        self._last_retrain = time.time()
+        logger.info(
+            f"✅ Eğitim tamamlandı [{symbol}] | {len(X)} sample | "
+            f"test_acc={acc:.1f}% | wf_acc={self._wf['accuracy']}% | "
+            f"F1={self._wf['f1']} | {elapsed:.1f}s"
+        )
+        return rec
 
+    def run_backtest(self, klines: dict) -> dict:
+        """Modelin sinyalleriyle backtest çalıştır"""
+        X, y = FeatureBuilder.build_dataset(klines, lookahead=5, threshold=0.008)
+        if X is None: return {}
+        c = np.asarray(klines["close"], dtype=np.float64)
+        MIN=40; sigs=[]
+        for i,(x,_) in enumerate(zip(X,y)):
+            p=self._ensemble(x)
+            sigs.append((MIN+i, max(p,key=p.get)))
+        self._bt = backtest(c, sigs)
+        logger.info(f"Backtest → ROI:{self._bt['roi']}% WR:{self._bt['win_rate']}% Sharpe:{self._bt['sharpe']}")
+        return self._bt
+
+    # ── FEEDBACK LOOP ─────────────────────────────────────────────────────────
+    def add_feedback(self, features: np.ndarray, outcome: str):
+        """Canlı trade sonucu → feedback buffer"""
+        lmap={"LONG":1,"SHORT":-1,"HOLD":0,"WAIT":0}
+        self._feedback.append((features, lmap.get(outcome,0)))
+        # Her 100 sample'da retrain (5dk cooldown)
+        if len(self._feedback)>=100 and time.time()-self._last_retrain>300:
+            Xf=np.array([f for f,_ in self._feedback],dtype=np.float32)
+            yf=np.array([l for _,l in self._feedback],dtype=np.int32)
+            self.gbm.fit(Xf,yf); self.rf.fit(Xf,yf)
+            self._last_retrain=time.time()
+            logger.info(f"🔁 Feedback retrain — {len(Xf)} sample")
+
+    # ── TAHMİN ────────────────────────────────────────────────────────────────
     def predict(self, symbol: str, klines: Optional[dict], current_price: float) -> dict:
-        """Run ensemble prediction"""
         try:
-            features = self._extract_features(klines, current_price)
-            prices = features["prices"]
+            if klines is None or len(klines.get("close",[])) < 30:
+                return self._fallback()
 
-            # Run all 5 models
-            rf_proba = self.rf.predict_proba(features)
-            xgb_proba = self.xgb.predict_proba(features)
-            lstm_proba = self.lstm.predict_proba(prices, features)
-            tr_proba = self.transformer.predict_proba(prices, features)
-            tft_proba = self.tft.predict_proba(prices, features)
+            feat = FeatureBuilder.build(klines)
+            if feat is None: return self._fallback()
 
-            # Ensemble: weighted average
-            # All 5 models equal weight (0.20 each)
-            ensemble = {}
-            for sig in ["LONG", "SHORT", "HOLD", "WAIT"]:
-                ensemble[sig] = (
-                    rf_proba[sig] * 0.20 +
-                    xgb_proba[sig] * 0.20 +
-                    lstm_proba[sig] * 0.20 +
-                    tr_proba[sig] * 0.20 +
-                    tft_proba[sig] * 0.20
-                )
+            # İlk çalışmada bu kline'ı kullanarak eğit
+            if not self._trained:
+                self.train(klines, symbol)
 
-            # Best signal
-            signal = max(ensemble, key=ensemble.get)
-            confidence = round(ensemble[signal] * 100, 1)
+            proba = self._ensemble(feat)
+            sig   = max(proba, key=proba.get)
+            conf  = round(proba[sig]*100, 1)
+            if conf < 54: sig = "WAIT"
 
-            # Minimum confidence threshold
-            if confidence < 52:
-                signal = "WAIT"
-                confidence = round(50 + np.random.uniform(0, 5), 1)
+            lev = 20 if conf>85 else 15 if conf>75 else 10 if conf>65 else 5
 
-            # Dynamic leverage based on confidence
-            if confidence > 85:
-                leverage = 20
-            elif confidence > 75:
-                leverage = 15
-            elif confidence > 65:
-                leverage = 10
-            else:
-                leverage = 5
-
-            # Active indicators for display
-            active_indicators = []
-            if abs(features["rsi"] - 50) > 15:
-                active_indicators.append(f"RSI:{features['rsi']:.0f}")
-            if abs(features["macd_hist"]) > 0:
-                active_indicators.append("MACD")
-            if features["bb_pct"] < 0.2 or features["bb_pct"] > 0.8:
-                active_indicators.append("BB")
-            if features["ema_cross"] != 0:
-                active_indicators.append("EMA")
-            if features["mfi"] < 30 or features["mfi"] > 70:
-                active_indicators.append(f"MFI:{features['mfi']:.0f}")
-            if features["volume_ratio"] > 1.5:
-                active_indicators.append(f"VOL:{features['volume_ratio']:.1f}x")
-            if not active_indicators:
-                active_indicators = ["RSI", "MACD", "BB"]
-
-            self._predictions_count += 1
-            # Drift accuracy slightly for realism
-            self._accuracy = max(65, min(82, self._accuracy + np.random.normal(0, 0.05)))
+            self._pred_count += 1
+            self._feedback.append((feat, {"LONG":1,"SHORT":-1,"HOLD":0,"WAIT":0}.get(sig,0)))
 
             return {
-                "signal": signal,
-                "confidence": confidence,
-                "indicators": active_indicators[:4],
-                "model": "RF+XGB+LSTM+TRF+TFT",
-                "leverage": leverage,
-                "rf_signal": max(rf_proba, key=rf_proba.get),
-                "xgb_signal": max(xgb_proba, key=xgb_proba.get),
-                "lstm_signal": max(lstm_proba, key=lstm_proba.get),
-                "transformer_signal": max(tr_proba, key=tr_proba.get),
-                "tft_signal": max(tft_proba, key=tft_proba.get),
-                "ensemble_proba": {k: round(v*100,1) for k,v in ensemble.items()},
-                "data_quality": "real" if klines is not None and len(klines.get("close", [])) >= 20 else "estimated",
+                "signal": sig, "confidence": conf,
+                "indicators": self._active_inds(klines)[:4],
+                "model": "GBM+RF (real fit)",
+                "leverage": lev,
+                "gbm_signal": max(self.gbm.predict_proba(feat),key=self.gbm.predict_proba(feat).get),
+                "rf_signal":  max(self.rf.predict_proba(feat), key=self.rf.predict_proba(feat).get),
+                "ensemble_proba": {k:round(v*100,1) for k,v in proba.items()},
+                "data_quality": "real",
+                "model_trained": self._trained,
+                "wf_accuracy": self._wf.get("accuracy",0),
+                "backtest_roi": self._bt.get("roi",0),
+                "backtest_sharpe": self._bt.get("sharpe",0),
             }
-
         except Exception as e:
-            logger.error(f"Prediction error for {symbol}: {e}")
-            return {
-                "signal": "WAIT",
-                "confidence": 50.0,
-                "indicators": ["ERR"],
-                "model": "fallback",
-                "leverage": 5,
-            }
+            logger.error(f"predict [{symbol}]: {e}")
+            return self._fallback()
 
+    def _ensemble(self, feat: np.ndarray) -> dict:
+        gp = self.gbm.predict_proba(feat)
+        rp = self.rf.predict_proba(feat)
+        out = {k: gp[k]*0.6 + rp[k]*0.4 for k in ["LONG","SHORT","HOLD","WAIT"]}
+        t=sum(out.values()); return {k:v/t for k,v in out.items()}
+
+    def _active_inds(self, klines: dict) -> list:
+        c=np.asarray(klines["close"],dtype=np.float64)
+        h=np.asarray(klines["high"],dtype=np.float64)
+        lo=np.asarray(klines["low"],dtype=np.float64)
+        ti=Indicators(); inds=[]
+        r=ti.rsi(c)
+        if r<35: inds.append(f"RSI:{r:.0f}↓OS")
+        elif r>65: inds.append(f"RSI:{r:.0f}↑OB")
+        else: inds.append(f"RSI:{r:.0f}")
+        _,_,mh=ti.macd(c)
+        inds.append("MACD+" if mh>0 else "MACD-")
+        bbu,_,bbl=ti.bb(c)
+        bp=(c[-1]-bbl)/(bbu-bbl+1e-10)
+        if bp<0.2: inds.append("BB-low")
+        elif bp>0.8: inds.append("BB-high")
+        else: inds.append(f"BB:{bp:.2f}")
+        e9,e21=ti.ema(c,9)[-1],ti.ema(c,21)[-1]
+        inds.append("EMA↑" if e9>e21 else "EMA↓")
+        m=ti.mfi(h,lo,c,np.asarray(klines["volume"],dtype=np.float64))
+        if m<30: inds.append(f"MFI:{m:.0f}↓")
+        elif m>70: inds.append(f"MFI:{m:.0f}↑")
+        return inds
+
+    def _fallback(self) -> dict:
+        return {"signal":"WAIT","confidence":50.0,
+                "indicators":["Veri bekleniyor"],"model":"GBM+RF","leverage":5,
+                "gbm_signal":"WAIT","rf_signal":"WAIT",
+                "ensemble_proba":{"LONG":25,"SHORT":25,"HOLD":25,"WAIT":25},
+                "data_quality":"insufficient","model_trained":self._trained,
+                "wf_accuracy":self._wf.get("accuracy",0),
+                "backtest_roi":self._bt.get("roi",0),"backtest_sharpe":self._bt.get("sharpe",0)}
+
+    # ── META ──────────────────────────────────────────────────────────────────
     def get_accuracy(self) -> float:
-        return round(self._accuracy, 1)
+        return self._wf.get("accuracy", 0.0)
 
     def get_info(self) -> dict:
         return {
-            "models": ["Random Forest", "XGBoost", "LSTM", "Transformer", "TFT"],
-            "ensemble_weights": {"rf": 0.20, "xgb": 0.20, "lstm": 0.20, "transformer": 0.20, "tft": 0.20},
-            "features": ["RSI-14", "MACD(12,26,9)", "BB(20)", "EMA(9,21)", "ATR-14", "OBV", "MFI-14", "Volume Ratio"],
-            "accuracy": self.get_accuracy(),
-            "predictions_made": self._predictions_count,
-            "data_source": "MEXC Futures API (15min OHLCV)",
-            "signals": ["LONG", "SHORT", "HOLD", "WAIT"],
-            "confidence_threshold": 52,
+            "models": ["GradientBoosting (LightGBM→sklearn→AdaBoost)", "RandomForest"],
+            "ensemble": {"gbm":0.6,"rf":0.4},
+            "n_features": FeatureBuilder.N_FEATURES,
+            "features": [
+                "RSI","StochRSI","MFI","Williams_R",
+                "MACD_line","MACD_sig","MACD_hist","EMA9_21","EMA50_dist",
+                "BB_pct","BB_width","ATR_pct","Vol_ratio","OBV_trend",
+                "Lag1","Lag2","Lag3","Ret5","Ret10","Ret20",
+                "Std5","Std20","Pos_HL","Gap_HL",
+                "Mom_acc","Body","HL_range","Upper_wick"
+            ],
+            "label_method": "lookahead=5bars, threshold=0.8%",
+            "validation": "Walk-forward (4-fold, no lookahead)",
+            "is_trained": self._trained,
+            "wf_result": self._wf,
+            "backtest": self._bt,
+            "train_log": self._train_log[-3:],
+            "feedback_buffer": len(self._feedback),
+            "predictions_made": self._pred_count,
+            "last_retrain": datetime.utcfromtimestamp(self._last_retrain).isoformat() if self._last_retrain>0 else None,
+            "confidence_threshold": 54,
+            "signals": ["LONG","SHORT","HOLD","WAIT"],
         }

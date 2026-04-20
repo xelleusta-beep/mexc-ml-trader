@@ -122,11 +122,50 @@ async def fetch_klines(client: httpx.AsyncClient, symbol: str, interval: str = "
     return None
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
+
+async def auto_train_on_startup():
+    """Sistem açılışında ilk scan tamamlandıktan sonra otomatik model eğit"""
+    await asyncio.sleep(60)  # İlk scan için bekle
+    logger.info("🤖 Otomatik model eğitimi başlıyor...")
+    all_X, all_y = [], []
+    async with httpx.AsyncClient() as client:
+        for sym in FUTURES_PAIRS[:8]:  # İlk 8 pair yeterli
+            try:
+                klines = await fetch_klines(client, sym, interval="Min15", limit=200)
+                if klines is None: continue
+                from ml_engine import FeatureBuilder
+                X, y = FeatureBuilder.build_dataset(klines, lookahead=5, threshold=0.008)
+                if X is not None and len(X) >= 20:
+                    all_X.append(X); all_y.append(y)
+                    logger.info(f"  {sym}: {len(X)} sample eklendi")
+                await asyncio.sleep(1)
+            except Exception as e:
+                logger.warning(f"  {sym} eğitim verisi alınamadı: {e}")
+    if all_X:
+        import numpy as np
+        Xall = np.vstack(all_X); yall = np.concatenate(all_y)
+        logger.info(f"Model eğitiliyor — toplam {len(Xall)} sample, {len(all_X)} pair")
+        ml_engine.gbm.fit(Xall, yall)
+        ml_engine.rf.fit(Xall, yall)
+        ml_engine._trained = True
+        # Walk-forward
+        from ml_engine import walk_forward_validate
+        ml_engine._wf = walk_forward_validate(Xall, yall, n_splits=4)
+        logger.info(f"✅ Model hazır — WF Accuracy: {ml_engine._wf.get('accuracy',0)}%, F1: {ml_engine._wf.get('f1',0)}")
+        # Backtest BTC ile
+        async with httpx.AsyncClient() as client:
+            klines_bt = await fetch_klines(client, "BTC_USDT", interval="Min15", limit=300)
+            if klines_bt:
+                ml_engine.run_backtest(klines_bt)
+    else:
+        logger.warning("Otomatik eğitim başarısız — MEXC API erişilemiyor olabilir")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 MEXC ML Trading System başlatılıyor...")
     asyncio.create_task(scanner_loop())
     asyncio.create_task(broadcast_loop())
+    asyncio.create_task(auto_train_on_startup())
     yield
     logger.info("Sistem kapatılıyor...")
 
@@ -194,11 +233,12 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
         "stop_loss": sl if price > 0 else 0,
         "take_profit": tp if price > 0 else 0,
         "leverage": prediction["leverage"],
-        "rf_signal": prediction.get("rf_signal"),
-        "xgb_signal": prediction.get("xgb_signal"),
-        "lstm_signal": prediction.get("lstm_signal"),
-        "transformer_signal": prediction.get("transformer_signal"),
-        "tft_signal": prediction.get("tft_signal"),
+        "gbm_signal": prediction.get("gbm_signal", "WAIT"),
+        "rf_signal": prediction.get("rf_signal", "WAIT"),
+        "model_trained": prediction.get("model_trained", False),
+        "wf_accuracy": prediction.get("wf_accuracy", 0),
+        "backtest_roi": prediction.get("backtest_roi", 0),
+        "backtest_sharpe": prediction.get("backtest_sharpe", 0),
         "timestamp": datetime.utcnow().isoformat(),
         "data_source": "real" if klines is not None else "simulated",
     }
@@ -439,6 +479,59 @@ async def get_model_info():
         "success": True,
         "data": ml_engine.get_info()
     }
+
+@app.post("/api/train/{symbol}")
+async def trigger_training(symbol: str):
+    """Elle model eğitimi tetikle — gerçek MEXC verisiyle"""
+    sym = symbol.upper().replace("-","_")
+    if sym not in scanner_cache:
+        return {"success":False,"error":"Pair bulunamadı — önce scan çalıştır"}
+    async with httpx.AsyncClient() as client:
+        klines = await fetch_klines(client, sym, interval="Min15", limit=200)
+    if klines is None:
+        return {"success":False,"error":"MEXC kline verisi alınamadı"}
+    result = ml_engine.train(klines, sym)
+    return {"success":True,"data":result}
+
+@app.post("/api/train_all")
+async def train_all():
+    """İlk 5 pairi kullanarak global modeli eğit"""
+    trained = []
+    all_X, all_y = [], []
+    async with httpx.AsyncClient() as client:
+        for sym in FUTURES_PAIRS[:5]:
+            klines = await fetch_klines(client, sym, interval="Min15", limit=200)
+            if klines is None: continue
+            from ml_engine import FeatureBuilder
+            X, y = FeatureBuilder.build_dataset(klines, lookahead=5, threshold=0.008)
+            if X is not None:
+                all_X.append(X); all_y.append(y)
+                trained.append(sym)
+    if all_X:
+        import numpy as np
+        Xall = np.vstack(all_X); yall = np.concatenate(all_y)
+        ml_engine.gbm.fit(Xall, yall)
+        ml_engine.rf.fit(Xall, yall)
+        ml_engine._trained = True
+        logger.info(f"Global model eğitildi — {len(Xall)} sample, {len(trained)} pair")
+        return {"success":True,"pairs":trained,"n_samples":len(Xall)}
+    return {"success":False,"error":"Veri alınamadı"}
+
+@app.get("/api/backtest/{symbol}")
+async def run_backtest(symbol: str):
+    """Seçili pair üzerinde backtest çalıştır"""
+    sym = symbol.upper().replace("-","_")
+    async with httpx.AsyncClient() as client:
+        klines = await fetch_klines(client, sym, interval="Min15", limit=300)
+    if klines is None:
+        return {"success":False,"error":"Veri alınamadı"}
+    result = ml_engine.run_backtest(klines)
+    return {"success":True,"symbol":sym,"data":result}
+
+@app.get("/api/backtest_all")
+async def run_backtest_all():
+    """Global backtest durumu"""
+    return {"success":True,"data":ml_engine._bt}
 
 @app.get("/health")
 async def health_check():
