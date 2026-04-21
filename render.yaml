@@ -2,13 +2,12 @@ services:
   - type: web
     name: mexc-ml-trader
     runtime: python
-    pythonVersion: 3.12.5
+    pythonVersion: 3.11.9
     region: frankfurt
     plan: free
-    buildCommand: pip install --only-binary=all -r backend/requirements.txt
+    buildCommand: pip install -r backend/requirements.txt
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     staticPublishPath: frontend
-    healthCheckPath: /health
     routes:
       - type: static
         value: /
