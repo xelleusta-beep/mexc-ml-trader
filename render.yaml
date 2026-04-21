@@ -2,7 +2,7 @@ services:
   - type: web
     name: mexc-ml-trader
     runtime: python
-    pythonVersion: 3.11.0
+    pythonVersion: 3.12.5
     region: frankfurt
     plan: free
     buildCommand: pip install --only-binary=all -r backend/requirements.txt
