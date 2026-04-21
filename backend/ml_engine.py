@@ -246,8 +246,6 @@ class GBMModel:
                 import lightgbm as lgb
                 import warnings
                 feat_names = [f"f{i}" for i in range(X.shape[1])]
-                import pandas as pd
-                X_df = pd.DataFrame(X, columns=feat_names)
                 self.clf = lgb.LGBMClassifier(
                     n_estimators=300, learning_rate=0.03, max_depth=6,
                     num_leaves=31, min_child_samples=5, subsample=0.8,
@@ -255,7 +253,7 @@ class GBMModel:
                     random_state=42, verbose=-1, n_jobs=-1)
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    self.clf.fit(X_df, y)
+                    self.clf.fit(X, y)
                 self._feat_names = feat_names
                 logger.info(f"LightGBM fit — {len(X)} sample")
 
@@ -308,14 +306,7 @@ class GBMModel:
         if not self.is_fitted: return default
         try:
             if self._backend in ("lgbm","skgbm") and self.clf is not None:
-                if self._backend == "lgbm" and hasattr(self, '_feat_names'):
-                    import pandas as pd, warnings
-                    x2d = pd.DataFrame(x.reshape(1,-1), columns=self._feat_names)
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
-                        p = self.clf.predict_proba(x2d)[0]
-                else:
-                    p = self.clf.predict_proba(x.reshape(1,-1))[0]
+                p = self.clf.predict_proba(x.reshape(1,-1))[0]
                 cls = list(self.clf.classes_)
                 r = {"LONG":0.1,"SHORT":0.1,"HOLD":0.1,"WAIT":0.05}
                 for i,c in enumerate(cls):
