@@ -7,10 +7,11 @@ import asyncio
 import json
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
 from contextlib import asynccontextmanager
 
+import os
 import numpy as np
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -23,6 +24,28 @@ from ml_engine import MLEngine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+# ── Telegram Config ──────────────────────────────────────────────────────────
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+async def send_telegram_message(text: str):
+    logger.info(f"Telegram Message Triggered: {text[:100]}...")
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.info("Telegram credentials missing, skipping actual send")
+        return
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML"
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(url, json=payload, timeout=10)
+    except Exception as e:
+        logger.error(f"Telegram error: {e}")
 
 # ── Globals ──────────────────────────────────────────────────────────────────
 ml_engine = MLEngine()
@@ -82,25 +105,67 @@ async def fetch_klines(client: httpx.AsyncClient, symbol: str, interval: str = "
                     low_list = rows.get("low", [])
                     vol_list = rows.get("vol", [])
                     if len(close_list) > 20:
-                        kline_data = {
-                            "timestamp": time_list,
-                            "open": np.array([float(x) for x in open_list]),
-                            "high": np.array([float(x) for x in high_list]),
-                            "low": np.array([float(x) for x in low_list]),
-                            "close": np.array([float(x) for x in close_list]),
-                            "volume": np.array([float(x) for x in vol_list]),
-                        }
-                        return kline_data
+                        try:
+                            kline_data = {
+                                "timestamp": time_list,
+                                "open": np.array([float(x) for x in open_list]),
+                                "high": np.array([float(x) for x in high_list]),
+                                "low": np.array([float(x) for x in low_list]),
+                                "close": np.array([float(x) for x in close_list]),
+                                "volume": np.array([float(x) for x in vol_list]),
+                            }
+                            return kline_data
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Kline data conversion error for {symbol}: {e}")
     except Exception as e:
         logger.debug(f"Kline error {symbol}: {e}")
     return None
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
+
+async def auto_train_on_startup():
+    """Sistem açılışında ilk scan tamamlandıktan sonra otomatik model eğit"""
+    await asyncio.sleep(60)  # İlk scan için bekle
+    logger.info("🤖 Otomatik model eğitimi başlıyor...")
+    all_X, all_y = [], []
+    async with httpx.AsyncClient() as client:
+        for sym in FUTURES_PAIRS[:8]:  # İlk 8 pair yeterli
+            try:
+                klines = await fetch_klines(client, sym, interval="Min15", limit=200)
+                if klines is None: continue
+                from ml_engine import FeatureBuilder
+                X, y = FeatureBuilder.build_dataset(klines, lookahead=5, threshold=0.008)
+                if X is not None and len(X) >= 20:
+                    all_X.append(X); all_y.append(y)
+                    logger.info(f"  {sym}: {len(X)} sample eklendi")
+                await asyncio.sleep(1)
+            except Exception as e:
+                logger.warning(f"  {sym} eğitim verisi alınamadı: {e}")
+    if all_X:
+        import numpy as np
+        Xall = np.vstack(all_X); yall = np.concatenate(all_y)
+        logger.info(f"Model eğitiliyor — toplam {len(Xall)} sample, {len(all_X)} pair")
+        ml_engine.gbm.fit(Xall, yall)
+        ml_engine.rf.fit(Xall, yall)
+        ml_engine._trained = True
+        # Walk-forward
+        from ml_engine import walk_forward_validate
+        ml_engine._wf = walk_forward_validate(Xall, yall, n_splits=4)
+        logger.info(f"✅ Model hazır — WF Accuracy: {ml_engine._wf.get('accuracy',0)}%, F1: {ml_engine._wf.get('f1',0)}")
+        # Backtest BTC ile
+        async with httpx.AsyncClient() as client:
+            klines_bt = await fetch_klines(client, "BTC_USDT", interval="Min15", limit=300)
+            if klines_bt:
+                ml_engine.run_backtest(klines_bt)
+    else:
+        logger.warning("Otomatik eğitim başarısız — MEXC API erişilemiyor olabilir")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 MEXC ML Trading System başlatılıyor...")
     asyncio.create_task(scanner_loop())
     asyncio.create_task(broadcast_loop())
+    asyncio.create_task(auto_train_on_startup())
     yield
     logger.info("Sistem kapatılıyor...")
 
@@ -147,6 +212,14 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
     # ML prediction
     prediction = ml_engine.predict(symbol, klines, price)
 
+    # Logic for SL/TP based on side - Increased precision to 10 decimals for low-priced assets
+    if prediction["signal"] == "SHORT":
+        sl = round(price * (1 + 0.025), 10)
+        tp = round(price * (1 - 0.045), 10)
+    else:
+        sl = round(price * (1 - 0.025), 10)
+        tp = round(price * (1 + 0.045), 10)
+
     result = {
         "symbol": symbol,
         "price": price,
@@ -157,24 +230,169 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
         "indicators": prediction["indicators"],
         "model_used": prediction["model"],
         "entry_price": price,
-        "stop_loss": round(price * (1 - 0.025), 6) if price > 0 else 0,
-        "take_profit": round(price * (1 + 0.045), 6) if price > 0 else 0,
+        "stop_loss": sl if price > 0 else 0,
+        "take_profit": tp if price > 0 else 0,
         "leverage": prediction["leverage"],
+        "gbm_signal": prediction.get("gbm_signal", "WAIT"),
+        "rf_signal": prediction.get("rf_signal", "WAIT"),
+        "model_trained": prediction.get("model_trained", False),
+        "wf_accuracy": prediction.get("wf_accuracy", 0),
+        "backtest_roi": prediction.get("backtest_roi", 0),
+        "backtest_sharpe": prediction.get("backtest_sharpe", 0),
         "timestamp": datetime.utcnow().isoformat(),
         "data_source": "real" if klines is not None else "simulated",
     }
 
-    # Update agent state (track PnL etc.)
+    # Update agent state (track positions and PnL)
     if symbol not in agent_states:
-        agent_states[symbol] = {"pnl": 0.0, "trades": 0, "wins": 0}
+        agent_states[symbol] = {
+            "pnl": 0.0,
+            "trades": 0,
+            "wins": 0,
+            "active_pos": None, # Stores entry details
+            "last_exit_time": None
+        }
 
     st = agent_states[symbol]
-    if np.random.random() < 0.1:  # Simulate trade close 10% of the time
-        trade_pnl = np.random.uniform(-50, 120) if prediction["signal"] != "WAIT" else 0
-        st["pnl"] += trade_pnl
-        st["trades"] += 1
-        if trade_pnl > 0:
-            st["wins"] += 1
+
+    # Check for new entry - Strict real data only + Cooldown + Distance check
+    can_enter = st["active_pos"] is None and prediction["signal"] in ["LONG", "SHORT"] and price > 0 and prediction["data_quality"] == "real"
+
+    # Cooldown check (5 mins)
+    if can_enter and st["last_exit_time"]:
+        cooldown_diff = (datetime.utcnow() - st["last_exit_time"]).total_seconds()
+        if cooldown_diff < 300: # 5 minutes
+            can_enter = False
+            logger.debug(f"Cooldown active for {symbol}: {300 - cooldown_diff:.0f}s left")
+
+    # Safety distance check (TP/SL must be at least 0.1% away)
+    if can_enter:
+        tp_dist = abs(result["take_profit"] - price) / price
+        sl_dist = abs(result["stop_loss"] - price) / price
+        if tp_dist < 0.001 or sl_dist < 0.001:
+            can_enter = False
+            logger.warning(f"Entry skipped for {symbol}: TP/SL too close to price ({tp_dist:.4%}/{sl_dist:.4%})")
+
+    if can_enter:
+        leverage = prediction["leverage"]
+        tp = result["take_profit"]
+        sl = result["stop_loss"]
+        # TR Time (UTC+3)
+        entry_time_raw = datetime.utcnow()
+        tr_time = (entry_time_raw + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
+
+        st["active_pos"] = {
+            "entry_price": price,
+            "side": prediction["signal"],
+            "leverage": leverage,
+            "size": 100 * leverage, # Assuming 100 USDT base size
+            "timestamp": tr_time,
+            "entry_time_raw": entry_time_raw,
+            "tp": tp,
+            "sl": sl,
+            "indicators": ", ".join(prediction["indicators"])
+        }
+
+        # Format prices with high precision
+        f_price = f"{price:.10g}"
+        f_tp = f"{tp:.10g}"
+        f_sl = f"{sl:.10g}"
+
+        msg = (
+            f"<b>🚀 İŞLEME GİRİLDİ: {symbol}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📍 Giriş Fiyatı: <code>{f_price}</code>\n"
+            f"↕️ Yön: <b>{prediction['signal']}</b>\n"
+            f"⚙️ Kaldıraç: <b>{leverage}x</b>\n"
+            f"💰 İşlem Büyüklüğü: <b>${100 * leverage}</b>\n"
+            f"🎯 TP: <code>{f_tp}</code>\n"
+            f"🛑 SL: <code>{f_sl}</code>\n"
+            f"🕒 Zaman: <code>{tr_time}</code> (TR)\n"
+            f"🔍 Koşullar: <i>{st['active_pos']['indicators']}</i>"
+        )
+        asyncio.create_task(send_telegram_message(msg))
+
+    # Monitoring active position for exit using real price
+    if st["active_pos"] is not None:
+        pos = st["active_pos"]
+        close_pos = False
+        exit_reason = ""
+
+        # Check TP/SL conditions
+        if pos["side"] == "LONG":
+            if price >= pos["tp"]:
+                close_pos = True
+                exit_reason = "🎯 TAKE PROFIT"
+            elif price <= pos["sl"]:
+                close_pos = True
+                exit_reason = "🛑 STOP LOSS"
+        elif pos["side"] == "SHORT":
+            if price <= pos["tp"]:
+                close_pos = True
+                exit_reason = "🎯 TAKE PROFIT"
+            elif price >= pos["sl"]:
+                close_pos = True
+                exit_reason = "🛑 STOP LOSS"
+
+        # Removed signal reversal exit logic as per user request
+        # Trades now only exit on TP or SL levels
+
+        if close_pos and price > 0:
+            entry_price = pos["entry_price"]
+            leverage = pos["leverage"]
+            size = pos["size"] # Total leveraged size
+
+            # PnL Calculation
+            if pos["side"] == "LONG":
+                price_diff_pct = (price - entry_price) / entry_price
+            else:
+                price_diff_pct = (entry_price - price) / entry_price
+
+            trade_pnl = size * price_diff_pct
+
+            # Fee calculation (0.06% for entry + 0.06% for exit)
+            entry_val = size
+            exit_val = size * (1 + price_diff_pct)
+            total_fee = (entry_val + exit_val) * 0.0006
+            net_pnl = trade_pnl - total_fee
+
+            st["pnl"] += net_pnl
+            st["trades"] += 1
+            if net_pnl > 0:
+                st["wins"] += 1
+
+            pnl_emoji = "🟢" if net_pnl > 0 else "🔴"
+            exit_time_raw = datetime.utcnow()
+            tr_time_exit = (exit_time_raw + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
+
+            # Duration calculation
+            diff = exit_time_raw - pos["entry_time_raw"]
+            seconds = int(diff.total_seconds())
+            hours, remainder = divmod(seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            duration_str = f"{hours}sa {minutes}dk {seconds}sn" if hours > 0 else f"{minutes}dk {seconds}sn"
+
+            curr_indicators = ", ".join(prediction["indicators"])
+
+            # Format prices with higher precision for display
+            f_entry = f"{entry_price:.10g}"
+            f_exit = f"{price:.10g}"
+
+            msg = (
+                f"<b>✅ İŞLEM KAPATILDI: {symbol}</b> ({exit_reason})\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"📥 Giriş Fiyatı: <code>{f_entry}</code>\n"
+                f"📤 Çıkış Fiyatı: <code>{f_exit}</code>\n"
+                f"💸 Fee (Kaldıraç Dahil): <b>-${total_fee:.2f}</b>\n"
+                f"💵 Net PnL: <b>{pnl_emoji} ${net_pnl:.2f}</b>\n"
+                f"📈 Toplam PnL: <b>${st['pnl']:.2f}</b>\n"
+                f"🕒 Zaman: <code>{tr_time_exit}</code> (TR)\n"
+                f"⏳ İşlem Süresi: <b>{duration_str}</b>\n"
+                f"🔍 Çıkış Koşulları: <i>{curr_indicators}</i>"
+            )
+            asyncio.create_task(send_telegram_message(msg))
+            st["active_pos"] = None
+            st["last_exit_time"] = exit_time_raw # For cooldown
 
     result["pnl"] = round(st["pnl"], 2)
     result["trades"] = st["trades"]
@@ -194,13 +412,15 @@ async def broadcast_loop():
                 "total_pairs": len(scanner_cache),
             })
             dead = []
-            for ws in active_connections:
+            # Use a copy to avoid RuntimeError: list changed size during iteration
+            for ws in active_connections[:]:
                 try:
                     await ws.send_text(msg)
                 except Exception:
                     dead.append(ws)
             for ws in dead:
-                active_connections.remove(ws)
+                if ws in active_connections:
+                    active_connections.remove(ws)
         await asyncio.sleep(5)
 
 # ── REST Endpoints ─────────────────────────────────────────────────────────────
@@ -260,6 +480,68 @@ async def get_model_info():
         "data": ml_engine.get_info()
     }
 
+@app.post("/api/train/{symbol}")
+async def trigger_training(symbol: str):
+    """Elle model eğitimi tetikle — gerçek MEXC verisiyle"""
+    sym = symbol.upper().replace("-","_")
+    if sym not in scanner_cache:
+        return {"success":False,"error":"Pair bulunamadı — önce scan çalıştır"}
+    async with httpx.AsyncClient() as client:
+        klines = await fetch_klines(client, sym, interval="Min15", limit=200)
+    if klines is None:
+        return {"success":False,"error":"MEXC kline verisi alınamadı"}
+    result = ml_engine.train(klines, sym)
+    return {"success":True,"data":result}
+
+@app.post("/api/train_all")
+async def train_all():
+    """İlk 5 pairi kullanarak global modeli eğit"""
+    trained = []
+    all_X, all_y = [], []
+    async with httpx.AsyncClient() as client:
+        for sym in FUTURES_PAIRS[:5]:
+            klines = await fetch_klines(client, sym, interval="Min15", limit=200)
+            if klines is None: continue
+            from ml_engine import FeatureBuilder
+            X, y = FeatureBuilder.build_dataset(klines, lookahead=5, threshold=0.008)
+            if X is not None:
+                all_X.append(X); all_y.append(y)
+                trained.append(sym)
+    if all_X:
+        import numpy as np
+        Xall = np.vstack(all_X); yall = np.concatenate(all_y)
+        ml_engine.gbm.fit(Xall, yall)
+        ml_engine.rf.fit(Xall, yall)
+        ml_engine._trained = True
+        logger.info(f"Global model eğitildi — {len(Xall)} sample, {len(trained)} pair")
+        return {"success":True,"pairs":trained,"n_samples":len(Xall)}
+    return {"success":False,"error":"Veri alınamadı"}
+
+@app.get("/api/backtest/{symbol}")
+async def run_backtest(symbol: str):
+    """Seçili pair üzerinde backtest çalıştır"""
+    sym = symbol.upper().replace("-","_")
+    async with httpx.AsyncClient() as client:
+        klines = await fetch_klines(client, sym, interval="Min15", limit=300)
+    if klines is None:
+        return {"success":False,"error":"Veri alınamadı"}
+    result = ml_engine.run_backtest(klines)
+    return {"success":True,"symbol":sym,"data":result}
+
+@app.get("/api/backtest_all")
+async def run_backtest_all():
+    """Global backtest durumu"""
+    return {"success":True,"data":ml_engine._bt}
+
+@app.get("/health")
+async def health_check():
+    """Render health check to keep service alive"""
+    return {
+        "status": "ok",
+        "timestamp": datetime.utcnow().isoformat(),
+        "total_pairs": len(scanner_cache)
+    }
+
 # ── WebSocket ──────────────────────────────────────────────────────────────────
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -294,4 +576,5 @@ async def serve_frontend():
     return {"message": "MEXC ML Trader API çalışıyor", "docs": "/docs"}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
