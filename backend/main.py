@@ -569,6 +569,13 @@ frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
 if os.path.exists(frontend_path):
     app.mount("/static", StaticFiles(directory=frontend_path), name="static")
 
+@app.get("/ml-details")
+async def serve_ml_details():
+    idx = os.path.join(frontend_path, "ml_details.html")
+    if os.path.exists(idx):
+        return FileResponse(idx)
+    return {"message": "ml_details.html bulunamadı"}
+
 @app.get("/")
 async def serve_frontend():
     idx = os.path.join(frontend_path, "index.html")

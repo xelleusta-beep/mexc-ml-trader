@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MEXC ML Trader — Makine Öğrenimi Detayları</title>
+<style>
+:root{
+  --bg:#0a0e1a;--bg2:#0f1424;--bg3:#141929;
+  --surface:#1a2035;--surface2:#202840;
+  --border:rgba(99,179,237,0.12);--border2:rgba(99,179,237,0.25);
+  --accent:#00d4ff;--accent2:#7c3aed;
+  --green:#10b981;--red:#ef4444;--amber:#f59e0b;
+  --text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
+  --font-std: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font-std);font-size:14px;background:var(--bg);color:var(--text);padding:20px}
+.main{max-width:1200px;margin:0 auto}
+
+/* HEADER */
+.header{display:flex;align-items:center;justify-content:space-between;padding:0 0 20px;border-bottom:1px solid var(--border);margin-bottom:24px}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-icon{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff}
+.logo-title{font-size:22px;font-weight:800;color:var(--accent)}
+.btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border2);background:var(--surface);color:var(--accent);text-decoration:none;font-size:13px;transition:all 0.2s}
+.btn:hover{background:var(--surface2);border-color:var(--accent)}
+
+/* PANELS */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:20px;margin-bottom:20px}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.panel-header{padding:14px 16px;border-bottom:1px solid var(--border);background:var(--bg3);font-weight:700;display:flex;align-items:center;gap:8px}
+.panel-body{padding:16px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+
+/* DATA FLOW */
+.flow{display:flex;flex-direction:column;gap:12px;position:relative}
+.flow-step{background:var(--bg2);border:1px solid var(--border);padding:12px;border-radius:8px;display:flex;align-items:center;gap:12px;z-index:1}
+.flow-icon{width:32px;height:32px;background:var(--surface2);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:bold}
+.flow-arrow{text-align:center;color:var(--text3);font-size:18px;line-height:1}
+
+/* FEATURES */
+.feat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+.feat-tag{background:rgba(0,212,255,0.08);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:11px;color:var(--text2);text-align:center}
+
+/* STATS */
+.stat-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)}
+.stat-row:last-child{border-bottom:none}
+.stat-label{color:var(--text3)}
+.stat-val{font-weight:600;color:var(--accent)}
+
+/* TABLE */
+.tbl{width:100%;border-collapse:collapse;margin-top:10px}
+.tbl th{text-align:left;color:var(--text3);font-size:11px;padding:8px;border-bottom:1px solid var(--border)}
+.tbl td{padding:8px;border-bottom:1px solid rgba(255,255,255,0.025);font-size:12px}
+
+.up{color:var(--green)} .down{color:var(--red)}
+</style>
+</head>
+<body>
+<div class="main">
+  <div class="header">
+    <div class="logo">
+      <div class="logo-icon">ML</div>
+      <div class="logo-title">ML Detayları & Veri Akışı</div>
+    </div>
+    <a href="/" class="btn">← Dashboard'a Dön</a>
+  </div>
+
+  <div class="grid">
+    <!-- ARCHITECTURE -->
+    <div class="panel">
+      <div class="panel-header"><div class="dot"></div>Model Ensemble Mimarisi</div>
+      <div class="panel-body">
+        <p style="color:var(--text2);margin-bottom:16px;font-size:13px">Sistem, iki ana modelin ağırlıklı ortalamasını (Ensemble) kullanır. Bu sayede hem varyans hem de sapma hataları minimize edilir.</p>
+        <div class="stat-row"><span class="stat-label">Gradient Boosting (GBM)</span><span class="stat-val">60% Ağırlık</span></div>
+        <div class="stat-row"><span class="stat-label">Random Forest (RF)</span><span class="stat-val">40% Ağırlık</span></div>
+        <div class="stat-row"><span class="stat-label">Karar Eşiği</span><span class="stat-val">> 54% Güven</span></div>
+        <div class="stat-row"><span class="stat-label">Tahmin Aralığı</span><span class="stat-val">5 Bar (Lookahead)</span></div>
+        <div class="stat-row"><span class="stat-label">Hedef Değişim</span><span class="stat-val">± 0.8%</span></div>
+      </div>
+    </div>
+
+    <!-- DATA FLOW -->
+    <div class="panel">
+      <div class="panel-header"><div class="dot" style="background:var(--accent2)"></div>Veri Akış Hattı (Data Pipeline)</div>
+      <div class="panel-body">
+        <div class="flow">
+          <div class="flow-step">
+            <div class="flow-icon">1</div>
+            <div><strong>MEXC API (REST/WS)</strong><div style="font-size:11px;color:var(--text3)">OHLCV Kline Verisi (15dk)</div></div>
+          </div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step">
+            <div class="flow-icon">2</div>
+            <div><strong>Indicator Engine</strong><div style="font-size:11px;color:var(--text3)">RSI, MACD, BB, EMA, MFI...</div></div>
+          </div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step">
+            <div class="flow-icon">3</div>
+            <div><strong>Feature Builder</strong><div style="font-size:11px;color:var(--text3)">28 Boyutlu Vektör Üretimi</div></div>
+          </div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step">
+            <div class="flow-icon">4</div>
+            <div><strong>ML Ensemble</strong><div style="font-size:11px;color:var(--text3)">GBM + RF Paralel Tahmin</div></div>
+          </div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step">
+            <div class="flow-icon">5</div>
+            <div><strong>Signal Generator</strong><div style="font-size:11px;color:var(--text3)">LONG / SHORT / HOLD / WAIT</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- FEATURES -->
+    <div class="panel" style="grid-column: span 2">
+      <div class="panel-header"><div class="dot" style="background:var(--amber)"></div>Feature Engineering (28 Özellik)</div>
+      <div class="panel-body">
+        <div class="feat-grid" id="featGrid"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- PERFORMANCE -->
+    <div class="panel">
+      <div class="panel-header"><div class="dot" style="background:var(--green)"></div>Doğrulama & Performans</div>
+      <div class="panel-body">
+        <div class="stat-row"><span class="stat-label">Model Durumu</span><span class="stat-val" id="isTrained">—</span></div>
+        <div class="stat-row"><span class="stat-label">WF Accuracy</span><span class="stat-val" id="wfAcc">—</span></div>
+        <div class="stat-row"><span class="stat-label">WF F1 Score</span><span class="stat-val" id="wfF1">—</span></div>
+        <div class="stat-row"><span class="stat-label">Toplam Tahmin</span><span class="stat-val" id="predCount">—</span></div>
+        <div class="stat-row"><span class="stat-label">Geri Bildirim Havuzu</span><span class="stat-val" id="fbBuffer">—</span></div>
+        <div class="stat-row"><span class="stat-label">Doğrulama Metodu</span><span class="stat-val" style="font-size:11px">Walk-forward (4-fold)</span></div>
+      </div>
+    </div>
+
+    <!-- LOGS -->
+    <div class="panel">
+      <div class="panel-header"><div class="dot" style="background:var(--red)"></div>Son Eğitim Kayıtları</div>
+      <div class="panel-body">
+        <table class="tbl">
+          <thead><tr><th>Zaman</th><th>Sembol</th><th>Örnek</th><th>Acc%</th></tr></thead>
+          <tbody id="trainLog"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function fetchData() {
+  try {
+    const r = await fetch('/api/model');
+    const d = await r.json();
+    if(d.success && d.data) {
+      const m = d.data;
+
+      // Features
+      if(m.features) {
+        document.getElementById('featGrid').innerHTML = m.features.map(f => `<div class="feat-tag">${f}</div>`).join('');
+      }
+
+      // Stats
+      document.getElementById('isTrained').textContent = m.is_trained ? 'EĞİTİLDİ ✓' : 'BEKLENİYOR';
+      document.getElementById('isTrained').className = 'stat-val ' + (m.is_trained ? 'up' : 'down');
+      document.getElementById('wfAcc').textContent = (m.wf_result?.accuracy || 0) + '%';
+      document.getElementById('wfF1').textContent = m.wf_result?.f1 || '0';
+      document.getElementById('predCount').textContent = (m.predictions_made || 0).toLocaleString();
+      document.getElementById('fbBuffer').textContent = m.feedback_buffer + ' sample';
+
+      // Logs
+      if(m.train_log) {
+        document.getElementById('trainLog').innerHTML = m.train_log.reverse().map(l => {
+          const time = l.trained_at.split('T')[1].split('.')[0];
+          return `<tr>
+            <td>${time}</td>
+            <td>${l.symbol}</td>
+            <td>${l.n_samples}</td>
+            <td class="${l.wf_accuracy > 50 ? 'up' : 'down'}">${l.wf_accuracy}%</td>
+          </tr>`;
+        }).join('');
+      }
+    }
+  } catch(e) { console.error(e); }
+}
+
+fetchData();
+setInterval(fetchData, 30000);
+</script>
+</body>
+</html>
