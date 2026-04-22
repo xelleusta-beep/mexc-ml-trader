@@ -558,8 +558,9 @@ async def websocket_endpoint(websocket: WebSocket):
             }))
         while True:
             await websocket.receive_text()  # Keep alive
-    except WebSocketDisconnect:
-        active_connections.remove(websocket)
+    except (WebSocketDisconnect, Exception):
+        if websocket in active_connections:
+            active_connections.remove(websocket)
         logger.info(f"WebSocket ayrıldı — kalan: {len(active_connections)}")
 
 # ── Static frontend ────────────────────────────────────────────────────────────
