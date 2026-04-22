@@ -7,6 +7,7 @@ import asyncio
 import json
 import time
 import logging
+from collections import deque
 from datetime import datetime, timedelta
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -52,6 +53,7 @@ ml_engine = MLEngine()
 active_connections: List[WebSocket] = []
 scanner_cache: dict = {}
 agent_states: dict = {}
+trade_history = deque(maxlen=100)
 
 MEXC_BASE = "https://contract.mexc.com/api/v1/contract"
 
@@ -220,6 +222,8 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
         sl = round(price * (1 - 0.025), 10)
         tp = round(price * (1 + 0.045), 10)
 
+    st = agent_states.get(symbol, {"pnl": 0.0, "trades": 0, "wins": 0, "active_pos": None})
+
     result = {
         "symbol": symbol,
         "price": price,
@@ -241,6 +245,7 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
         "backtest_sharpe": prediction.get("backtest_sharpe", 0),
         "timestamp": datetime.utcnow().isoformat(),
         "data_source": "real" if klines is not None else "simulated",
+        "active_pos": st.get("active_pos")
     }
 
     # Update agent state (track positions and PnL)
@@ -391,6 +396,19 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
                 f"🔍 Çıkış Koşulları: <i>{curr_indicators}</i>"
             )
             asyncio.create_task(send_telegram_message(msg))
+
+            # Add to history
+            trade_history.appendleft({
+                "symbol": symbol,
+                "entry_price": entry_price,
+                "exit_price": price,
+                "side": pos["side"],
+                "pnl": net_pnl,
+                "reason": exit_reason,
+                "duration": duration_str,
+                "time": tr_time_exit
+            })
+
             st["active_pos"] = None
             st["last_exit_time"] = exit_time_raw # For cooldown
 
@@ -478,6 +496,14 @@ async def get_model_info():
     return {
         "success": True,
         "data": ml_engine.get_info()
+    }
+
+@app.get("/api/history")
+async def get_trade_history():
+    """Get closed trade history"""
+    return {
+        "success": True,
+        "data": list(trade_history)
     }
 
 @app.post("/api/train/{symbol}")

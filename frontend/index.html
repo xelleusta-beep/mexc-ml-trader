@@ -249,10 +249,28 @@ html,body{height:100%;font-family:var(--font-std);font-size:14px;background:var(
 <div class="main-grid">
 <div class="left-col">
 
+  <!-- ACTIVE TRADES -->
+  <div class="panel anim" id="activeTradesPanel" style="display:none; margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title"><div class="dot" style="background:var(--green)"></div>Aktif İşlemler <span class="badge" id="activeBadge">0</span></div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Zaman</th><th>Pair</th><th>Yön</th><th>Giriş</th>
+            <th>Mevcut</th><th>Kaldıraç</th><th>Büyüklük</th><th>PnL</th>
+          </tr>
+        </thead>
+        <tbody id="activeBody"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- AGENT TABLE -->
   <div class="panel anim">
     <div class="panel-header" style="flex-wrap: wrap; gap: 10px;">
-      <div class="panel-title"><div class="dot"></div>Trading Agentler <span class="badge" id="agentBadge">0</span></div>
+      <div class="panel-title"><div class="dot"></div>Tüm Stratejiler <span class="badge" id="agentBadge">0</span></div>
       <div class="flex gap8" style="flex-wrap: wrap;">
         <input class="search" id="searchInput" placeholder="Pair ara..." oninput="renderTable()">
         <div class="filters">
@@ -281,11 +299,22 @@ html,body{height:100%;font-family:var(--font-std);font-size:14px;background:var(
   <div class="panel anim">
     <div class="tabs">
       <div class="tab active" onclick="switchTab('pnl',this)">PnL Grafiği</div>
-      <div class="tab" onclick="switchTab('signals',this)">Sinyal Geçmişi</div>
+      <div class="tab" onclick="switchTab('history',this)">İşlem Geçmişi</div>
+      <div class="tab" onclick="switchTab('signals',this)">Sinyal Akışı</div>
       <div class="tab" onclick="switchTab('log',this)">Sistem Logu</div>
     </div>
     <div class="tab-body active" id="tab-pnl">
       <div class="chart-wrap"><canvas id="pnlChart" role="img" aria-label="Kümülatif PnL zaman serisi">PnL grafiği</canvas></div>
+    </div>
+    <div class="tab-body" id="tab-history">
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr><th>Zaman</th><th>Pair</th><th>Yön</th><th>Giriş</th><th>Çıkış</th><th>Süre</th><th>PnL</th></tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
     </div>
     <div class="tab-body" id="tab-signals">
       <div style="max-height:300px;overflow-y:auto" id="sigFeed"></div>
@@ -446,6 +475,14 @@ async function forceScan() {
 
 async function fetchStats() {
   try {
+    const r = await fetch(API_BASE+'/api/history');
+    const d = await r.json();
+    if(d.success && d.data) {
+      renderHistory(d.data);
+    }
+  } catch(e){}
+
+  try {
     const r = await fetch(API_BASE+'/api/stats');
     const d = await r.json();
     if(d.success && d.data) {
@@ -484,6 +521,7 @@ function processData(dataArr, ts) {
 
   // Update UI
   renderTable();
+  renderActiveTrades(dataArr);
   renderScanner(dataArr);
   renderTicker(dataArr);
   updatePnlChart();
@@ -549,6 +587,39 @@ function renderTable() {
   }).join('');
 
   document.getElementById('agentBody').innerHTML = html || `<tr><td colspan="13" style="text-align:center;padding:24px;color:var(--text3)">Veri bekleniyor... Backend çalışıyor mu?</td></tr>`;
+}
+
+function renderActiveTrades(dataArr) {
+  const active = dataArr.filter(d => d.active_pos);
+  const panel = document.getElementById('activeTradesPanel');
+
+  if(active.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+
+  panel.style.display = 'block';
+  document.getElementById('activeBadge').textContent = active.length;
+
+  const html = active.map(d => {
+    const pos = d.active_pos;
+    const sym = d.symbol.replace('_USDT','');
+    const priceStr = d.price < 1 ? d.price.toFixed(5) : d.price.toFixed(2);
+    const entryStr = pos.entry_price < 1 ? pos.entry_price.toFixed(5) : pos.entry_price.toFixed(2);
+
+    return `<tr>
+      <td style="color:var(--text3);font-size:11px">${pos.timestamp.split(' ')[1]}</td>
+      <td><div class="pair-cell"><div class="sym-icon" style="background:${symColor(sym)};color:#fff">${sym[0]}</div>${sym}</div></td>
+      <td><span class="sig ${sigCls(pos.side)}">${pos.side}</span></td>
+      <td style="font-weight:600">$${entryStr}</td>
+      <td style="font-weight:600">$${priceStr}</td>
+      <td style="color:var(--accent2)">${pos.leverage}x</td>
+      <td style="color:var(--text2)">$${pos.size.toFixed(0)}</td>
+      <td class="${(d.pnl||0)>=0?'up':'down'}" style="font-weight:700">${(d.pnl||0)>=0?'+':''}$${(d.pnl||0).toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('activeBody').innerHTML = html;
 }
 
 // ─── RENDER SCANNER ───────────────────────────────────────────────────
@@ -636,13 +707,30 @@ function addLog(cls, msg) {
 
 // ─── MODEL INFO ───────────────────────────────────────────────────────
 function updateModelInfo(info) {
-  document.getElementById('mAcc').textContent = info.accuracy+'%';
-  document.getElementById('mAcc').className = 'metric-val '+(info.accuracy>70?'up':'down');
-  document.getElementById('mPred').textContent = (info.predictions_made||0).toLocaleString();
-  document.getElementById('sAcc').textContent = info.accuracy+'%';
-  const conf = Math.min(95, Math.max(55, info.accuracy));
-  document.getElementById('mConf').textContent = conf.toFixed(0)+'%';
-  document.getElementById('confFill').style.width = conf+'%';
+  const acc = (info.wf_result && info.wf_result.accuracy) ? info.wf_result.accuracy : 0;
+  document.getElementById('mAcc').textContent = acc + '%';
+  document.getElementById('mAcc').className = 'metric-val ' + (acc > 70 ? 'up' : 'down');
+  document.getElementById('mPred').textContent = (info.predictions_made || 0).toLocaleString();
+  document.getElementById('sAcc').textContent = acc + '%';
+  const conf = Math.min(95, Math.max(55, acc));
+  document.getElementById('mConf').textContent = conf.toFixed(0) + '%';
+  document.getElementById('confFill').style.width = conf + '%';
+}
+
+function renderHistory(history) {
+  const html = history.map(h => {
+    const sym = h.symbol.replace('_USDT','');
+    return `<tr>
+      <td style="color:var(--text3);font-size:11px">${h.time}</td>
+      <td style="font-weight:600">${sym}</td>
+      <td><span class="sig ${sigCls(h.side)}" style="font-size:9px;padding:1px 5px">${h.side}</span></td>
+      <td>$${h.entry_price < 1 ? h.entry_price.toFixed(5) : h.entry_price.toFixed(2)}</td>
+      <td>$${h.exit_price < 1 ? h.exit_price.toFixed(5) : h.exit_price.toFixed(2)}</td>
+      <td style="color:var(--text3)">${h.duration}</td>
+      <td class="${h.pnl>=0?'up':'down'}" style="font-weight:700">${h.pnl>=0?'+':''}$${h.pnl.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('historyBody').innerHTML = html || `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">Henüz tamamlanmış işlem yok.</td></tr>`;
 }
 
 function updateStats(s) {
