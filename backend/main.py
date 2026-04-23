@@ -90,23 +90,28 @@ def load_data():
 
 MEXC_BASE = "https://contract.mexc.com/api/v1/contract"
 
-# Top 60 MEXC Futures pairs
-FUTURES_PAIRS = [
-    "BTC_USDT","ETH_USDT","BNB_USDT","SOL_USDT","XRP_USDT",
-    "DOGE_USDT","ADA_USDT","AVAX_USDT","DOT_USDT","MATIC_USDT",
-    "LINK_USDT","UNI_USDT","ATOM_USDT","LTC_USDT","ETC_USDT",
-    "BCH_USDT","FIL_USDT","APT_USDT","ARB_USDT","OP_USDT",
-    "SUI_USDT","INJ_USDT","TIA_USDT","SEI_USDT","JUP_USDT",
-    "PEPE_USDT","WIF_USDT","BONK_USDT","FLOKI_USDT","SHIB_USDT",
-    "NEAR_USDT","FTM_USDT","CRV_USDT","AAVE_USDT","MKR_USDT",
-    "SNX_USDT","COMP_USDT","YFI_USDT","SUSHI_USDT","1INCH_USDT",
-    "ICP_USDT","HBAR_USDT","ALGO_USDT","VET_USDT","XLM_USDT",
-    "SAND_USDT","MANA_USDT","AXS_USDT","GALA_USDT","IMX_USDT",
-    "LDO_USDT","RPL_USDT","GMX_USDT","DYDX_USDT","BLUR_USDT",
-    "MAGIC_USDT","APE_USDT","GMT_USDT","CELR_USDT","ROSE_USDT",
-]
+# Dynamic list of MEXC Futures pairs
+FUTURES_PAIRS = []
 
 # ── MEXC API helpers ──────────────────────────────────────────────────────────
+async def fetch_all_futures_pairs(client: httpx.AsyncClient) -> List[str]:
+    """Fetch all active USDT-settled futures pairs from MEXC"""
+    try:
+        r = await client.get(f"{MEXC_BASE}/detail", timeout=10)
+        if r.status_code == 200:
+            d = r.json()
+            if d.get("success") and d.get("data"):
+                # Filter for active (state=0) symbols settled in USDT
+                pairs = [
+                    item["symbol"] for item in d["data"]
+                    if item.get("state") == 0 and item.get("settleCoin") == "USDT"
+                ]
+                logger.info(f"MEXC'den {len(pairs)} aktif pair çekildi.")
+                return pairs
+    except Exception as e:
+        logger.error(f"Pair fetch error: {e}")
+    return []
+
 async def fetch_ticker(client: httpx.AsyncClient, symbol: str) -> Optional[dict]:
     """Fetch real-time ticker from MEXC"""
     try:
@@ -160,11 +165,12 @@ async def fetch_klines(client: httpx.AsyncClient, symbol: str, interval: str = "
 
 async def auto_train_on_startup():
     """Sistem açılışında ilk scan tamamlandıktan sonra otomatik model eğit"""
-    await asyncio.sleep(60)  # İlk scan için bekle
+    await asyncio.sleep(30)  # Wait for pairs to be fetched
     logger.info("🤖 Otomatik model eğitimi başlıyor...")
     all_X, all_y = [], []
     async with httpx.AsyncClient() as client:
-        for sym in FUTURES_PAIRS[:8]:  # İlk 8 pair yeterli
+        targets = FUTURES_PAIRS[:12] if FUTURES_PAIRS else ["BTC_USDT", "ETH_USDT", "SOL_USDT"]
+        for sym in targets:
             try:
                 klines = await fetch_klines(client, sym, interval="Min15", limit=200)
                 if klines is None: continue
@@ -218,10 +224,20 @@ app.add_middleware(
 # ── Background tasks ───────────────────────────────────────────────────────────
 async def scanner_loop():
     """Continuously scan MEXC futures pairs and run ML predictions"""
+    global FUTURES_PAIRS
     logger.info("Scanner loop başladı")
     while True:
         try:
             async with httpx.AsyncClient() as client:
+                # Refresh pairs list occasionally
+                new_pairs = await fetch_all_futures_pairs(client)
+                if new_pairs:
+                    FUTURES_PAIRS = new_pairs
+
+                if not FUTURES_PAIRS:
+                    await asyncio.sleep(10)
+                    continue
+
                 # Scan in batches of 10
                 for i in range(0, len(FUTURES_PAIRS), 10):
                     batch = FUTURES_PAIRS[i:i+10]
@@ -657,6 +673,7 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.send_text(json.dumps({
                 "type": "init",
                 "data": list(scanner_cache.values()),
+                "portfolio": portfolio,
                 "timestamp": datetime.utcnow().isoformat(),
             }))
         while True:

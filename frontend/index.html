@@ -430,6 +430,8 @@ function connect() {
       const msg = JSON.parse(e.data);
       if(msg.data && Array.isArray(msg.data)) {
         processData(msg.data, msg.timestamp, msg.portfolio);
+      } else if (msg.type === 'init' && msg.portfolio) {
+        updatePortfolioUI(msg.portfolio);
       }
     } catch(err){ addLog('le','Veri parse hatası: '+err.message) }
   };
@@ -770,6 +772,7 @@ function updateStats(s) {
     document.getElementById('sPos').textContent = s.active_longs + s.active_shorts;
     document.getElementById('sPosSub').textContent = s.active_longs + ' Long · ' + s.active_shorts + ' Short (Live)';
   }
+  if(s.portfolio) updatePortfolioUI(s.portfolio);
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────

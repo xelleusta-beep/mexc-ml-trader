@@ -190,11 +190,11 @@ async function fetchData() {
         const gbm = m.models.find(x => x.name === 'GradientBoosting');
         const rf = m.models.find(x => x.name === 'RandomForest');
         if(gbm) {
-          document.getElementById('gbmBackend').textContent = gbm.backend + ' Backend';
+          document.getElementById('gbmBackend').textContent = '60% Ağırlık (' + gbm.backend + ')';
           document.getElementById('gbmEst').textContent = gbm.estimators;
         }
         if(rf) {
-          document.getElementById('rfBackend').textContent = rf.backend + ' Backend';
+          document.getElementById('rfBackend').textContent = '40% Ağırlık (' + rf.backend + ')';
           document.getElementById('rfEst').textContent = rf.estimators;
         }
       }
