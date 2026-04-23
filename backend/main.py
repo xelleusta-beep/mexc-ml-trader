@@ -54,6 +54,39 @@ active_connections: List[WebSocket] = []
 scanner_cache: dict = {}
 agent_states: dict = {}
 trade_history = deque(maxlen=100)
+portfolio = {
+    "capital": 100000.0,
+    "total_fees": 0.0,
+    "initial_capital": 100000.0
+}
+
+PERSISTENCE_FILE = "persistence.json"
+
+def save_data():
+    try:
+        data = {
+            "agent_states": agent_states,
+            "trade_history": list(trade_history),
+            "portfolio": portfolio,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        with open(PERSISTENCE_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception as e:
+        logger.error(f"Save error: {e}")
+
+def load_data():
+    global agent_states, trade_history, portfolio
+    if os.path.exists(PERSISTENCE_FILE):
+        try:
+            with open(PERSISTENCE_FILE, "r") as f:
+                data = json.load(f)
+                agent_states = data.get("agent_states", {})
+                trade_history = deque(data.get("trade_history", []), maxlen=100)
+                portfolio = data.get("portfolio", portfolio)
+                logger.info("Veriler başarıyla yüklendi")
+        except Exception as e:
+            logger.error(f"Load error: {e}")
 
 MEXC_BASE = "https://contract.mexc.com/api/v1/contract"
 
@@ -165,10 +198,12 @@ async def auto_train_on_startup():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 MEXC ML Trading System başlatılıyor...")
+    load_data()
     asyncio.create_task(scanner_loop())
     asyncio.create_task(broadcast_loop())
     asyncio.create_task(auto_train_on_startup())
     yield
+    save_data()
     logger.info("Sistem kapatılıyor...")
 
 app = FastAPI(title="MEXC ML Trader", lifespan=lifespan)
@@ -303,6 +338,10 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
         f_tp = f"{tp:.10g}"
         f_sl = f"{sl:.10g}"
 
+        entry_fee = (100 * leverage) * 0.0006
+        portfolio["total_fees"] += entry_fee
+        portfolio["capital"] -= entry_fee
+
         msg = (
             f"<b>🚀 İŞLEME GİRİLDİ: {symbol}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -310,12 +349,15 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
             f"↕️ Yön: <b>{prediction['signal']}</b>\n"
             f"⚙️ Kaldıraç: <b>{leverage}x</b>\n"
             f"💰 İşlem Büyüklüğü: <b>${100 * leverage}</b>\n"
+            f"💸 Giriş Komisyonu: <b>-${entry_fee:.4f}</b>\n"
             f"🎯 TP: <code>{f_tp}</code>\n"
             f"🛑 SL: <code>{f_sl}</code>\n"
             f"🕒 Zaman: <code>{tr_time}</code> (TR)\n"
+            f"🏦 Kasa: <b>${portfolio['capital']:.2f}</b>\n"
             f"🔍 Koşullar: <i>{st['active_pos']['indicators']}</i>"
         )
         asyncio.create_task(send_telegram_message(msg))
+        save_data()
 
     # Monitoring active position for exit using real price
     if st["active_pos"] is not None:
@@ -382,6 +424,16 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
             if net_pnl > 0:
                 st["wins"] += 1
 
+            # Update global portfolio
+            exit_fee = exit_val * 0.0006
+            portfolio["total_fees"] += exit_fee
+            # net_pnl already subtracted both fees from trade_pnl,
+            # but we already subtracted entry_fee from capital on entry.
+            # net_pnl = trade_pnl - (entry_fee + exit_fee)
+            # capital_change = trade_pnl - exit_fee
+            capital_change = trade_pnl - exit_fee
+            portfolio["capital"] += capital_change
+
             pnl_emoji = "🟢" if net_pnl > 0 else "🔴"
             exit_time_raw = datetime.utcnow()
             tr_time_exit = (exit_time_raw + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
@@ -404,14 +456,16 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"📥 Giriş Fiyatı: <code>{f_entry}</code>\n"
                 f"📤 Çıkış Fiyatı: <code>{f_exit}</code>\n"
-                f"💸 Fee (Kaldıraç Dahil): <b>-${total_fee:.2f}</b>\n"
+                f"💸 Net Komisyon: <b>-${total_fee:.4f}</b>\n"
                 f"💵 Net PnL: <b>{pnl_emoji} ${net_pnl:.2f}</b>\n"
-                f"📈 Toplam PnL: <b>${st['pnl']:.2f}</b>\n"
+                f"📈 Toplam Sembol PnL: <b>${st['pnl']:.2f}</b>\n"
                 f"🕒 Zaman: <code>{tr_time_exit}</code> (TR)\n"
                 f"⏳ İşlem Süresi: <b>{duration_str}</b>\n"
+                f"🏦 Güncel Kasa: <b>${portfolio['capital']:.2f}</b>\n"
                 f"🔍 Çıkış Koşulları: <i>{curr_indicators}</i>"
             )
             asyncio.create_task(send_telegram_message(msg))
+            save_data()
 
             # Add to history
             trade_history.appendleft({
@@ -442,6 +496,7 @@ async def broadcast_loop():
             msg = json.dumps({
                 "type": "update",
                 "data": list(scanner_cache.values()),
+                "portfolio": portfolio,
                 "timestamp": datetime.utcnow().isoformat(),
                 "total_pairs": len(scanner_cache),
             })
@@ -506,6 +561,7 @@ async def get_stats():
             "active_shorts": active_shorts,
             "closed_longs": closed_longs,
             "closed_shorts": closed_shorts,
+            "portfolio": portfolio,
             "model_accuracy": round(ml_engine.get_accuracy(), 1),
             "timestamp": datetime.utcnow().isoformat(),
         }

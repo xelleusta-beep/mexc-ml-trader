@@ -219,6 +219,11 @@ html,body{height:100%;font-family:var(--font-std);font-size:14px;background:var(
 <!-- STATS -->
 <div class="stats-row anim">
   <div class="stat-card">
+    <div class="stat-label">Kasa Durumu</div>
+    <div class="stat-value style-accent" id="sCap">$100,000</div>
+    <div class="stat-sub neutral" id="sCapSub">Toplam Bakiye</div>
+  </div>
+  <div class="stat-card">
     <div class="stat-label">Toplam PnL</div>
     <div class="stat-value up" id="sPnl">$0</div>
     <div class="stat-sub neutral" id="sPnlSub">Hesaplanıyor</div>
@@ -333,12 +338,12 @@ html,body{height:100%;font-family:var(--font-std);font-size:14px;background:var(
   <div class="panel anim">
     <div class="panel-header"><div class="panel-title"><div class="dot" style="background:var(--accent2)"></div>ML Ensemble Modeli</div></div>
     <div style="padding:14px 16px">
-      <div class="metric"><span class="metric-label">Mimari</span><span class="metric-val" style="color:var(--accent);font-size:11px">RF+XGB+LSTM+TRF+TFT</span></div>
-      <div class="metric"><span class="metric-label">Accuracy</span><span class="metric-val up" id="mAcc">—</span></div>
+      <div class="metric"><span class="metric-label">Mimari</span><span class="metric-val" style="color:var(--accent);font-size:11px" id="mArch">GBM + RF (Ensemble)</span></div>
+      <div class="metric"><span class="metric-label">Accuracy (WF)</span><span class="metric-val up" id="mAcc">—</span></div>
       <div class="metric"><span class="metric-label">Sharpe Ratio</span><span class="metric-val" id="mSharpe">2.31</span></div>
       <div class="metric"><span class="metric-label">Tahmin Sayısı</span><span class="metric-val" id="mPred">—</span></div>
-      <div class="metric"><span class="metric-label">Stop Loss</span><span class="metric-val down">-2.5%</span></div>
-      <div class="metric"><span class="metric-label">Take Profit</span><span class="metric-val up">+4.5%</span></div>
+      <div class="metric"><span class="metric-label">Feedback Buffer</span><span class="metric-val" id="mFB">—</span></div>
+      <div class="metric"><span class="metric-label">Risk/Reward</span><span class="metric-val up">1.8 (4.5% / 2.5%)</span></div>
       <div style="margin-top:12px">
         <div style="display:flex;justify-content:space-between;margin-bottom:4px">
           <span style="font-size:10px;color:var(--text3)">Model Güveni</span>
@@ -424,7 +429,7 @@ function connect() {
     try {
       const msg = JSON.parse(e.data);
       if(msg.data && Array.isArray(msg.data)) {
-        processData(msg.data, msg.timestamp);
+        processData(msg.data, msg.timestamp, msg.portfolio);
       }
     } catch(err){ addLog('le','Veri parse hatası: '+err.message) }
   };
@@ -499,7 +504,7 @@ async function fetchStats() {
 }
 
 // ─── DATA PROCESSING ─────────────────────────────────────────────────
-function processData(dataArr, ts) {
+function processData(dataArr, ts, portfolioData) {
   let realCount = 0;
   dataArr.forEach(d => {
     const prev = pairData[d.symbol];
@@ -543,6 +548,8 @@ function processData(dataArr, ts) {
   document.getElementById('lastUpdate').textContent = 'Güncellendi: '+lastScanTime;
   document.getElementById('scanInfo').textContent = dataArr.length+' pair tarandı — '+realCount+' gerçek veri';
   document.getElementById('sDataSrc').textContent = realCount>0?'MEXC API ✓':'API bekleniyor';
+
+  if(portfolioData) updatePortfolioUI(portfolioData);
 }
 
 // ─── RENDER TABLE ─────────────────────────────────────────────────────
@@ -710,10 +717,23 @@ function updateModelInfo(info) {
   document.getElementById('mAcc').textContent = acc + '%';
   document.getElementById('mAcc').className = 'metric-val ' + (acc > 70 ? 'up' : 'down');
   document.getElementById('mPred').textContent = (info.predictions_made || 0).toLocaleString();
+  document.getElementById('mFB').textContent = (info.feedback_buffer || 0) + ' sample';
   document.getElementById('sAcc').textContent = acc + '%';
+  if(info.models) {
+    const names = info.models.map(m => m.name[0]).join('+');
+    document.getElementById('mArch').textContent = info.models.map(m => `${m.name}(${m.backend})`).join(' + ');
+  }
   const conf = Math.min(95, Math.max(55, acc));
   document.getElementById('mConf').textContent = conf.toFixed(0) + '%';
   document.getElementById('confFill').style.width = conf + '%';
+}
+
+function updatePortfolioUI(p) {
+  if(!p) return;
+  document.getElementById('sCap').textContent = '$' + p.capital.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+  const chg = p.capital - p.initial_capital;
+  document.getElementById('sCap').className = 'stat-value ' + (chg >= 0 ? 'up' : 'down');
+  document.getElementById('sCapSub').textContent = (chg>=0?'+':'') + '$' + chg.toFixed(2) + ' Net Kar/Zarar';
 }
 
 function renderHistory(history) {

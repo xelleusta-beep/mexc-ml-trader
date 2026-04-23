@@ -75,6 +75,8 @@ body{font-family:var(--font-std);font-size:14px;background:var(--bg);color:var(-
         <p style="color:var(--text2);margin-bottom:16px;font-size:13px">Sistem, iki ana modelin ağırlıklı ortalamasını (Ensemble) kullanır. Bu sayede hem varyans hem de sapma hataları minimize edilir.</p>
         <div class="stat-row"><span class="stat-label">Gradient Boosting (GBM)</span><span class="stat-val" id="gbmBackend">60% Ağırlık</span></div>
         <div class="stat-row"><span class="stat-label">Random Forest (RF)</span><span class="stat-val" id="rfBackend">40% Ağırlık</span></div>
+        <div class="stat-row"><span class="stat-label">GBM Estimators</span><span class="stat-val" id="gbmEst">300</span></div>
+        <div class="stat-row"><span class="stat-label">RF Estimators</span><span class="stat-val" id="rfEst">100</span></div>
         <div class="stat-row"><span class="stat-label">Karar Eşiği</span><span class="stat-val">> 54% Güven</span></div>
         <div class="stat-row"><span class="stat-label">Tahmin Aralığı</span><span class="stat-val">5 Bar (Lookahead)</span></div>
         <div class="stat-row"><span class="stat-label">Hedef Değişim</span><span class="stat-val">± 0.8%</span></div>
@@ -118,8 +120,12 @@ body{font-family:var(--font-std);font-size:14px;background:var(--bg);color:var(-
   <div class="grid">
     <!-- FEATURES -->
     <div class="panel" style="grid-column: span 2">
-      <div class="panel-header"><div class="dot" style="background:var(--amber)"></div>Feature Engineering (28 Özellik)</div>
+      <div class="panel-header">
+        <div class="dot" style="background:var(--amber)"></div>Feature Engineering (28 Özellik)
+        <span id="featStatus" style="font-size:10px;color:var(--green);margin-left:auto;background:rgba(16,185,129,0.1);padding:2px 6px;border-radius:4px">Durum: Üretim</span>
+      </div>
       <div class="panel-body">
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text3)">Aşağıdaki özellikler her 15 dakikada bir hesaplanarak modele girdi (input) olarak verilir.</div>
         <div class="feat-grid" id="featGrid"></div>
       </div>
     </div>
@@ -161,8 +167,14 @@ async function fetchData() {
       const m = d.data;
 
       // Features
-      if(m.features) {
-        document.getElementById('featGrid').innerHTML = m.features.map(f => `<div class="feat-tag">${f}</div>`).join('');
+      if(m.features && Array.isArray(m.features)) {
+        document.getElementById('featGrid').innerHTML = m.features.map(f => {
+          const name = typeof f === 'string' ? f : f.name;
+          const type = f.type ? `<div style="font-size:8px;color:var(--accent2)">${f.type}</div>` : '';
+          const imp = f.importance ? `<div style="font-size:8px;color:var(--amber)">Imp: ${(f.importance*100).toFixed(1)}%</div>` : '';
+          return `<div class="feat-tag">${name}${type}${imp}</div>`;
+        }).join('');
+        if(m.feature_engineering_status) document.getElementById('featStatus').textContent = 'Durum: ' + m.feature_engineering_status;
       }
 
       // Stats
@@ -174,9 +186,17 @@ async function fetchData() {
       document.getElementById('fbBuffer').textContent = m.feedback_buffer + ' sample';
 
       // Models
-      if(m.models) {
-        document.getElementById('gbmBackend').textContent = m.models[0].split('(')[1].replace(')','') + ' Backend';
-        document.getElementById('rfBackend').textContent = m.models[1].split('(')[1].replace(')','') + ' Backend';
+      if(m.models && Array.isArray(m.models)) {
+        const gbm = m.models.find(x => x.name === 'GradientBoosting');
+        const rf = m.models.find(x => x.name === 'RandomForest');
+        if(gbm) {
+          document.getElementById('gbmBackend').textContent = gbm.backend + ' Backend';
+          document.getElementById('gbmEst').textContent = gbm.estimators;
+        }
+        if(rf) {
+          document.getElementById('rfBackend').textContent = rf.backend + ' Backend';
+          document.getElementById('rfEst').textContent = rf.estimators;
+        }
       }
 
       // Logs
