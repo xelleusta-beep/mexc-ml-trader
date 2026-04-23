@@ -61,6 +61,8 @@ portfolio = {
 }
 
 PERSISTENCE_FILE = "persistence.json"
+MAX_OPEN_POSITIONS = 30
+MIN_VOLUME_24H = 10000000.0  # $10M
 
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""
@@ -326,8 +328,18 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
 
     st = agent_states[symbol]
 
-    # Check for new entry - Strict real data only + Cooldown + Distance check
+    # Check for new entry - Strict real data only + Cooldown + Distance check + Limits
     can_enter = st["active_pos"] is None and prediction["signal"] in ["LONG", "SHORT"] and price > 0 and prediction["data_quality"] == "real"
+
+    # Limit checks
+    if can_enter:
+        active_count = sum(1 for sym in agent_states if agent_states[sym].get("active_pos") is not None)
+        if active_count >= MAX_OPEN_POSITIONS:
+            can_enter = False
+            logger.info(f"Entry skipped for {symbol}: MAX_OPEN_POSITIONS reached ({active_count})")
+        elif volume24h < MIN_VOLUME_24H:
+            can_enter = False
+            logger.info(f"Entry skipped for {symbol}: Volume too low (${volume24h:,.0f} < ${MIN_VOLUME_24H:,.0f})")
 
     # Cooldown check (5 mins)
     if can_enter and st["last_exit_time"]:
