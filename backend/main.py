@@ -320,6 +320,22 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
     # Monitoring active position for exit using real price
     if st["active_pos"] is not None:
         pos = st["active_pos"]
+
+        # Calculate Unrealized PnL for live updates
+        entry_p = pos["entry_price"]
+        side = pos["side"]
+        lev = pos["leverage"]
+        size = pos["size"]
+
+        if side == "LONG":
+            diff_pct = (price - entry_p) / entry_p
+        else:
+            diff_pct = (entry_p - price) / entry_p
+
+        unrealized_pnl = size * diff_pct
+        pos["unrealized_pnl"] = round(unrealized_pnl, 2)
+        pos["current_price"] = price
+
         close_pos = False
         exit_reason = ""
 
@@ -471,9 +487,13 @@ async def get_stats():
     total_trades = sum(agent_states.get(v["symbol"], {}).get("trades", 0) for v in vals)
     total_wins = sum(agent_states.get(v["symbol"], {}).get("wins", 0) for v in vals)
 
-    longs = [v for v in vals if v["signal"] == "LONG"]
-    shorts = [v for v in vals if v["signal"] == "SHORT"]
-    holds = [v for v in vals if v["signal"] == "HOLD"]
+    # Active positions based on real open trades, not just signals
+    active_longs = sum(1 for v in vals if v.get("active_pos") and v["active_pos"]["side"] == "LONG")
+    active_shorts = sum(1 for v in vals if v.get("active_pos") and v["active_pos"]["side"] == "SHORT")
+
+    # Counts of closed trades per side
+    closed_longs = sum(1 for h in trade_history if h["side"] == "LONG")
+    closed_shorts = sum(1 for h in trade_history if h["side"] == "SHORT")
 
     return {
         "success": True,
@@ -482,9 +502,10 @@ async def get_stats():
             "total_pnl": round(total_pnl, 2),
             "total_trades": total_trades,
             "win_rate": round(total_wins / total_trades * 100, 1) if total_trades > 0 else 0,
-            "longs": len(longs),
-            "shorts": len(shorts),
-            "holds": len(holds),
+            "active_longs": active_longs,
+            "active_shorts": active_shorts,
+            "closed_longs": closed_longs,
+            "closed_shorts": closed_shorts,
             "model_accuracy": round(ml_engine.get_accuracy(), 1),
             "timestamp": datetime.utcnow().isoformat(),
         }

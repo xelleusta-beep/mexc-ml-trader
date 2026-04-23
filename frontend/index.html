@@ -526,12 +526,10 @@ function processData(dataArr, ts) {
   renderTicker(dataArr);
   updatePnlChart();
 
-  const longs = dataArr.filter(d=>d.signal==='LONG').length;
-  const shorts = dataArr.filter(d=>d.signal==='SHORT').length;
+  const activeCount = dataArr.filter(d=>d.active_pos).length;
   document.getElementById('sPnl').textContent = (totalPnl>=0?'+':'')+'$'+totalPnl.toFixed(0);
   document.getElementById('sPnl').className = 'stat-value '+(totalPnl>=0?'up':'down');
-  document.getElementById('sPos').textContent = longs+shorts;
-  document.getElementById('sPosSub').textContent = longs+' Long · '+shorts+' Short';
+  document.getElementById('sPos').textContent = activeCount;
   document.getElementById('sPairs').textContent = dataArr.length;
   document.getElementById('realCount').textContent = realCount+'/'+dataArr.length+' pair';
   document.getElementById('realCount').className = realCount>0?'metric-val up':'metric-val neutral';
@@ -606,6 +604,7 @@ function renderActiveTrades(dataArr) {
     const sym = d.symbol.replace('_USDT','');
     const priceStr = d.price < 1 ? d.price.toFixed(5) : d.price.toFixed(2);
     const entryStr = pos.entry_price < 1 ? pos.entry_price.toFixed(5) : pos.entry_price.toFixed(2);
+    const pnlVal = pos.unrealized_pnl || 0;
 
     return `<tr>
       <td style="color:var(--text3);font-size:11px">${pos.timestamp.split(' ')[1]}</td>
@@ -615,7 +614,7 @@ function renderActiveTrades(dataArr) {
       <td style="font-weight:600">$${priceStr}</td>
       <td style="color:var(--accent2)">${pos.leverage}x</td>
       <td style="color:var(--text2)">$${pos.size.toFixed(0)}</td>
-      <td class="${(d.pnl||0)>=0?'up':'down'}" style="font-weight:700">${(d.pnl||0)>=0?'+':''}$${(d.pnl||0).toFixed(2)}</td>
+      <td class="${pnlVal>=0?'up':'down'}" style="font-weight:700">${pnlVal>=0?'+':''}$${pnlVal.toFixed(2)}</td>
     </tr>`;
   }).join('');
 
@@ -628,7 +627,7 @@ function renderScanner(dataArr) {
     const sym = d.symbol.replace('_USDT','');
     const priceStr = d.price < 1 ? d.price.toFixed(5) : d.price.toFixed(2);
     return `<div class="sc-card ${d.data_source==='real'?'real-data':''}">
-      <div><div class="sc-pair">${sym}/USDT</div><div class="sc-vol">Vol: $${(d.volume24h||0).toFixed(0)}M · ${(d.confidence||0).toFixed(0)}%</div></div>
+      <div><div class="sc-pair">${sym}/USDT</div><div class="sc-vol">Vol: $${formatVol(d.volume24h||0)} · ${(d.confidence||0).toFixed(0)}%</div></div>
       <div>
         <div class="sc-price">$${priceStr}</div>
         <div class="sc-chg ${(d.change24h||0)>=0?'up':'down'}">${(d.change24h||0)>=0?'+':''}${(d.change24h||0).toFixed(2)}% <span class="sig ${sigCls(d.signal)}" style="font-size:9px;padding:1px 5px">${d.signal}</span></div>
@@ -643,7 +642,7 @@ function renderTicker(dataArr) {
   const items = dataArr.slice(0,20).map(d => {
     const sym = d.symbol.replace('_USDT','');
     const priceStr = d.price < 1 ? d.price.toFixed(4) : d.price.toFixed(2);
-    return `<span class="t-item"><span class="t-sym">${sym}/USDT</span><span class="t-price">$${priceStr}</span><span class="${(d.change24h||0)>=0?'up':'down'}">${(d.change24h||0)>=0?'+':''}${(d.change24h||0).toFixed(2)}%</span></span>`;
+    return `<span class="t-item"><span class="t-sym">${sym}/USDT</span><span class="t-price">$${priceStr}</span><span style="font-size:10px;color:var(--text3)">V:$${formatVol(d.volume24h||0)}</span><span class="${(d.change24h||0)>=0?'up':'down'}">${(d.change24h||0)>=0?'+':''}${(d.change24h||0).toFixed(2)}%</span></span>`;
   }).join('');
   const el = document.getElementById('tickerEl');
   el.innerHTML = items+items;
@@ -745,17 +744,28 @@ function updateStats(s) {
   if(s.total_pnl !== undefined) {
     document.getElementById('sPnl').textContent = (s.total_pnl>=0?'+':'')+'$'+s.total_pnl.toFixed(0);
     document.getElementById('sPnl').className = 'stat-value '+(s.total_pnl>=0?'up':'down');
-    document.getElementById('sPnlSub').textContent = s.longs+'L '+s.shorts+'S · '+s.holds+' Hold';
+    document.getElementById('sPnlSub').textContent = (s.closed_longs||0)+' Long · '+(s.closed_shorts||0)+' Short (Closed)';
+  }
+  if(s.active_longs !== undefined) {
+    document.getElementById('sPos').textContent = s.active_longs + s.active_shorts;
+    document.getElementById('sPosSub').textContent = s.active_longs + ' Long · ' + s.active_shorts + ' Short (Live)';
   }
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────
 function setConn(state, text) {
   const pill = document.getElementById('connPill');
+  if(!pill) return;
   const dot = pill.querySelector('.pulse');
   pill.className = 'conn-pill conn-'+state;
-  dot.className = 'pulse p-'+(state==='ok'?'green':state==='err'?'red':'amber');
+  if(dot) dot.className = 'pulse p-'+(state==='ok'?'green':state==='err'?'red':'amber');
   document.getElementById('connText').textContent = text;
+}
+
+function formatVol(v) {
+  if (v >= 1000000000) return (v / 1000000000).toFixed(2) + 'B';
+  if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+  return v.toFixed(0);
 }
 
 function sigCls(s) {
@@ -785,13 +795,18 @@ function switchTab(name, el) {
 }
 
 // ─── BOOT ─────────────────────────────────────────────────────────────
-initChart();
-addLog('li','MEXC ML Trader başlatıldı');
-addLog('li','Backend: '+API_BASE);
-addLog('li','WebSocket: '+WS_URL);
-connect();
-setInterval(fetchStats, 15000);
-fetchStats();
+window.addEventListener('DOMContentLoaded', () => {
+  initChart();
+  addLog('li','MEXC ML Trader başlatıldı');
+  addLog('li','Backend: '+API_BASE);
+  addLog('li','WebSocket: '+WS_URL);
+
+  // Auto-connect with slight delay to ensure everything is ready
+  setTimeout(connect, 500);
+
+  setInterval(fetchStats, 15000);
+  fetchStats();
+});
 
 // Sharpe animation
 setInterval(()=>{

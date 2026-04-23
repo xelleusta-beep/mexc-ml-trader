@@ -73,8 +73,8 @@ body{font-family:var(--font-std);font-size:14px;background:var(--bg);color:var(-
       <div class="panel-header"><div class="dot"></div>Model Ensemble Mimarisi</div>
       <div class="panel-body">
         <p style="color:var(--text2);margin-bottom:16px;font-size:13px">Sistem, iki ana modelin ağırlıklı ortalamasını (Ensemble) kullanır. Bu sayede hem varyans hem de sapma hataları minimize edilir.</p>
-        <div class="stat-row"><span class="stat-label">Gradient Boosting (GBM)</span><span class="stat-val">60% Ağırlık</span></div>
-        <div class="stat-row"><span class="stat-label">Random Forest (RF)</span><span class="stat-val">40% Ağırlık</span></div>
+        <div class="stat-row"><span class="stat-label">Gradient Boosting (GBM)</span><span class="stat-val" id="gbmBackend">60% Ağırlık</span></div>
+        <div class="stat-row"><span class="stat-label">Random Forest (RF)</span><span class="stat-val" id="rfBackend">40% Ağırlık</span></div>
         <div class="stat-row"><span class="stat-label">Karar Eşiği</span><span class="stat-val">> 54% Güven</span></div>
         <div class="stat-row"><span class="stat-label">Tahmin Aralığı</span><span class="stat-val">5 Bar (Lookahead)</span></div>
         <div class="stat-row"><span class="stat-label">Hedef Değişim</span><span class="stat-val">± 0.8%</span></div>
@@ -173,9 +173,15 @@ async function fetchData() {
       document.getElementById('predCount').textContent = (m.predictions_made || 0).toLocaleString();
       document.getElementById('fbBuffer').textContent = m.feedback_buffer + ' sample';
 
+      // Models
+      if(m.models) {
+        document.getElementById('gbmBackend').textContent = m.models[0].split('(')[1].replace(')','') + ' Backend';
+        document.getElementById('rfBackend').textContent = m.models[1].split('(')[1].replace(')','') + ' Backend';
+      }
+
       // Logs
       if(m.train_log) {
-        document.getElementById('trainLog').innerHTML = m.train_log.reverse().map(l => {
+        document.getElementById('trainLog').innerHTML = [...m.train_log].reverse().map(l => {
           const time = l.trained_at.split('T')[1].split('.')[0];
           return `<tr>
             <td>${time}</td>

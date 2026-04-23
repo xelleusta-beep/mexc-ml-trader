@@ -649,8 +649,13 @@ class MLEngine:
         return self._wf.get("accuracy", 0.0)
 
     def get_info(self) -> dict:
+        gbm_type = self.gbm._backend
+        rf_type = self.rf._backend
         return {
-            "models": ["GradientBoosting (LightGBM→sklearn→AdaBoost)", "RandomForest"],
+            "models": [
+                f"GradientBoosting ({gbm_type})",
+                f"RandomForest ({rf_type})"
+            ],
             "ensemble": {"gbm":0.6,"rf":0.4},
             "n_features": FeatureBuilder.N_FEATURES,
             "features": [
@@ -666,7 +671,7 @@ class MLEngine:
             "is_trained": self._trained,
             "wf_result": self._wf,
             "backtest": self._bt,
-            "train_log": self._train_log[-3:],
+            "train_log": self._train_log[-10:],
             "feedback_buffer": len(self._feedback),
             "predictions_made": self._pred_count,
             "last_retrain": datetime.fromtimestamp(self._last_retrain, tz=__import__("datetime").timezone.utc).isoformat() if self._last_retrain>0 else None,
