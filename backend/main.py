@@ -62,6 +62,12 @@ portfolio = {
 
 PERSISTENCE_FILE = "persistence.json"
 
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default json code"""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError ("Type %s not serializable" % type(obj))
+
 def save_data():
     try:
         data = {
@@ -71,7 +77,7 @@ def save_data():
             "timestamp": datetime.utcnow().isoformat()
         }
         with open(PERSISTENCE_FILE, "w") as f:
-            json.dump(data, f)
+            json.dump(data, f, default=json_serial)
     except Exception as e:
         logger.error(f"Save error: {e}")
 
@@ -81,7 +87,16 @@ def load_data():
         try:
             with open(PERSISTENCE_FILE, "r") as f:
                 data = json.load(f)
-                agent_states = data.get("agent_states", {})
+
+                # Restore datetime objects in agent_states
+                loaded_states = data.get("agent_states", {})
+                for sym, st in loaded_states.items():
+                    if st.get("last_exit_time"):
+                        st["last_exit_time"] = datetime.fromisoformat(st["last_exit_time"])
+                    if st.get("active_pos") and st["active_pos"].get("entry_time_raw"):
+                        st["active_pos"]["entry_time_raw"] = datetime.fromisoformat(st["active_pos"]["entry_time_raw"])
+
+                agent_states = loaded_states
                 trade_history = deque(data.get("trade_history", []), maxlen=100)
                 portfolio = data.get("portfolio", portfolio)
                 logger.info("Veriler başarıyla yüklendi")
