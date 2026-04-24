@@ -14,6 +14,7 @@ import numpy as np
 import logging
 import time
 import os
+import joblib
 from typing import Optional
 from collections import deque
 from datetime import datetime
@@ -245,7 +246,6 @@ class GBMModel:
             if self._backend == "lgbm":
                 import lightgbm as lgb
                 import warnings
-                feat_names = [f"f{i}" for i in range(X.shape[1])]
                 self.clf = lgb.LGBMClassifier(
                     n_estimators=300, learning_rate=0.03, max_depth=6,
                     num_leaves=31, min_child_samples=5, subsample=0.8,
@@ -253,8 +253,8 @@ class GBMModel:
                     random_state=42, verbose=-1, n_jobs=-1)
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
+                    # Fit without feature names so predict_proba accepts plain numpy arrays
                     self.clf.fit(X, y)
-                self._feat_names = feat_names
                 logger.info(f"LightGBM fit — {len(X)} sample")
 
             elif self._backend == "skgbm":
@@ -306,7 +306,10 @@ class GBMModel:
         if not self.is_fitted: return default
         try:
             if self._backend in ("lgbm","skgbm") and self.clf is not None:
-                p = self.clf.predict_proba(x.reshape(1,-1))[0]
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    p = self.clf.predict_proba(x.reshape(1,-1))[0]
                 cls = list(self.clf.classes_)
                 r = {"LONG":0.1,"SHORT":0.1,"HOLD":0.1,"WAIT":0.05}
                 for i,c in enumerate(cls):
@@ -425,7 +428,7 @@ def walk_forward_validate(X, y, n_splits=4) -> dict:
         if len(Xtr)<5 or len(Xte)<2: continue
         m = GBMModel(); m.fit(Xtr, ytr)
         lmap={"LONG":1,"SHORT":-1,"HOLD":0,"WAIT":0}
-        preds=np.array([lmap[max(m.predict_proba(x),key=m.predict_proba(x).get)] for x in Xte])
+        preds=np.array([lmap[max(p:=m.predict_proba(x),key=p.get)] for x in Xte])
         accs.append(float(np.mean(preds==yte)))
         # macro F1
         f1_vals=[]
@@ -513,11 +516,12 @@ class MLEngine:
 
         # Test accuracy
         lmap = {"LONG":1,"SHORT":-1,"HOLD":0,"WAIT":0}
-        preds = np.array([lmap[max(self.gbm.predict_proba(x),key=self.gbm.predict_proba(x).get)] for x in Xte])
+        preds = np.array([lmap[max(p:=self.gbm.predict_proba(x),key=p.get)] for x in Xte])
         acc = float(np.mean(preds==yte))*100 if len(yte)>0 else 0
 
-        # Walk-forward
+        # Walk-forward + Backtest (model eğitiminden hemen sonra)
         self._wf = walk_forward_validate(X, y, n_splits=4)
+        self._bt = self.run_backtest(klines)
 
         elapsed = time.time()-t0
         rec = {
@@ -578,7 +582,10 @@ class MLEngine:
             if not self._trained:
                 self.train(klines, symbol)
 
-            proba = self._ensemble(feat)
+            gp = self.gbm.predict_proba(feat)
+            rp = self.rf.predict_proba(feat)
+            proba = {k: gp[k]*0.6 + rp[k]*0.4 for k in ["LONG","SHORT","HOLD","WAIT"]}
+            t = sum(proba.values()); proba = {k:v/t for k,v in proba.items()}
             sig   = max(proba, key=proba.get)
             conf  = round(proba[sig]*100, 1)
             if conf < 54: sig = "WAIT"
@@ -593,8 +600,8 @@ class MLEngine:
                 "indicators": self._active_inds(klines)[:4],
                 "model": "GBM+RF (real fit)",
                 "leverage": lev,
-                "gbm_signal": max(self.gbm.predict_proba(feat),key=self.gbm.predict_proba(feat).get),
-                "rf_signal":  max(self.rf.predict_proba(feat), key=self.rf.predict_proba(feat).get),
+                "gbm_signal": max(gp, key=gp.get),
+                "rf_signal":  max(rp, key=rp.get),
                 "ensemble_proba": {k:round(v*100,1) for k,v in proba.items()},
                 "data_quality": "real",
                 "model_trained": self._trained,
@@ -643,6 +650,60 @@ class MLEngine:
                 "data_quality":"insufficient","model_trained":self._trained,
                 "wf_accuracy":self._wf.get("accuracy",0),
                 "backtest_roi":self._bt.get("roi",0),"backtest_sharpe":self._bt.get("sharpe",0)}
+
+    # ── MODEL KAYIT / YÜKLEME ────────────────────────────────────────────────
+    def save(self, path: str) -> bool:
+        """Eğitilmiş modelleri diske kaydet (joblib)"""
+        try:
+            os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
+            payload = {
+                "gbm_backend": self.gbm._backend,
+                "gbm_clf": self.gbm.clf,
+                "gbm_stumps": getattr(self.gbm, "_stumps", None),
+                "gbm_alphas": getattr(self.gbm, "_alphas", None),
+                "rf_backend": self.rf._backend,
+                "rf_clf": self.rf.clf,
+                "rf_trees": getattr(self.rf, "_trees", None),
+                "trained": self._trained,
+                "wf": self._wf,
+                "bt": self._bt,
+                "train_log": self._train_log,
+                "pred_count": self._pred_count,
+                "last_retrain": self._last_retrain,
+            }
+            joblib.dump(payload, path, compress=3)
+            logger.info(f"✅ Model kaydedildi → {path} ({os.path.getsize(path)//1024}KB)")
+            return True
+        except Exception as e:
+            logger.error(f"Model kayıt hatası: {e}")
+            return False
+
+    def load(self, path: str) -> bool:
+        """Kaydedilmiş modelleri diskten yükle"""
+        if not os.path.exists(path):
+            return False
+        try:
+            payload = joblib.load(path)
+            self.gbm._backend = payload["gbm_backend"]
+            self.gbm.clf = payload["gbm_clf"]
+            if payload.get("gbm_stumps"): self.gbm._stumps = payload["gbm_stumps"]
+            if payload.get("gbm_alphas"): self.gbm._alphas = payload["gbm_alphas"]
+            self.gbm.is_fitted = True
+            self.rf._backend = payload["rf_backend"]
+            self.rf.clf = payload["rf_clf"]
+            if payload.get("rf_trees"): self.rf._trees = payload["rf_trees"]
+            self.rf.is_fitted = True
+            self._trained = payload.get("trained", True)
+            self._wf = payload.get("wf", {})
+            self._bt = payload.get("bt", {})
+            self._train_log = payload.get("train_log", [])
+            self._pred_count = payload.get("pred_count", 0)
+            self._last_retrain = payload.get("last_retrain", 0.0)
+            logger.info(f"✅ Model yüklendi ← {path} | wf_acc={self._wf.get('accuracy',0)}%")
+            return True
+        except Exception as e:
+            logger.error(f"Model yükleme hatası: {e}")
+            return False
 
     # ── META ──────────────────────────────────────────────────────────────────
     def get_accuracy(self) -> float:

@@ -83,10 +83,7 @@ html,body{height:100%;font-family:var(--font-std);font-size:14px;background:var(
   .tbl th:nth-child(9), .tbl td:nth-child(9),
   .tbl th:nth-child(10), .tbl td:nth-child(10),
   .tbl th:nth-child(11), .tbl td:nth-child(11),
-  .tbl th:nth-child(12), .tbl td:nth-child(12),
-  .tbl th:nth-child(13), .tbl td:nth-child(13),
-  .tbl th:nth-child(14), .tbl td:nth-child(14),
-  .tbl th:nth-child(15), .tbl td:nth-child(15) { display: none; }
+  .tbl th:nth-child(12), .tbl td:nth-child(12) { display: none; }
 }
 
 /* PANEL */
@@ -292,7 +289,7 @@ html,body{height:100%;font-family:var(--font-std);font-size:14px;background:var(
           <tr>
             <th>Durum</th><th>Pair</th><th>Sinyal</th><th>Güven</th>
             <th>Fiyat</th><th>PnL</th><th>Win%</th><th>Kaldıraç</th>
-            <th>İndikatörler</th><th>RF</th><th>XGB</th><th>LSTM</th><th>TRF</th><th>TFT</th><th>Veri</th>
+            <th>İndikatörler</th><th>GBM</th><th>RF</th><th>Veri</th>
           </tr>
         </thead>
         <tbody id="agentBody"></tbody>
@@ -441,7 +438,7 @@ function connect() {
     document.getElementById('wsStatus').textContent='Hata';
     document.getElementById('wsStatus').className='metric-val down';
     addLog('le','WebSocket bağlantı hatası — REST API\'ye geçiliyor');
-    pollREST();
+    // onclose fires after onerror - handles REST polling
   };
 
   ws.onclose = () => {
@@ -503,6 +500,15 @@ async function fetchStats() {
     const d = await r.json();
     if(d.success && d.data) updateModelInfo(d.data);
   } catch(e){}
+
+  try {
+    const r = await fetch(API_BASE+'/api/backtest_all');
+    const d = await r.json();
+    if(d.success && d.data && d.data.sharpe !== undefined) {
+      const el = document.getElementById('mSharpe');
+      if(el) el.textContent = d.data.sharpe.toFixed(2);
+    }
+  } catch(e){}
 }
 
 // ─── DATA PROCESSING ─────────────────────────────────────────────────
@@ -541,7 +547,7 @@ function processData(dataArr, ts, portfolioData) {
   document.getElementById('realCount').textContent = realCount+'/'+dataArr.length+' pair';
   document.getElementById('realCount').className = realCount>0?'metric-val up':'metric-val neutral';
 
-  const avgWin = dataArr.reduce((s,d)=>s+(d.win_rate||0),0)/dataArr.length;
+  const avgWin = dataArr.length > 0 ? dataArr.reduce((s,d)=>s+(d.win_rate||0),0)/dataArr.length : 0;
   document.getElementById('sWin').textContent = avgWin.toFixed(1)+'%';
   document.getElementById('sWin').className = 'stat-value '+(avgWin>60?'up':'down');
 
@@ -584,11 +590,8 @@ function renderTable() {
       <td class="${(d.win_rate||0)>=50?'up':'down'}">${(d.win_rate||0).toFixed(0)}%</td>
       <td style="color:var(--accent2)">${d.leverage||5}x</td>
       <td>${tags}</td>
+      <td><span class="sig ${sigCls(d.gbm_signal)}" style="font-size:9px;padding:2px 5px">${d.gbm_signal||'—'}</span></td>
       <td><span class="sig ${sigCls(d.rf_signal)}" style="font-size:9px;padding:2px 5px">${d.rf_signal||'—'}</span></td>
-      <td><span class="sig ${sigCls(d.xgb_signal)}" style="font-size:9px;padding:2px 5px">${d.xgb_signal||'—'}</span></td>
-      <td><span class="sig ${sigCls(d.lstm_signal)}" style="font-size:9px;padding:2px 5px">${d.lstm_signal||'—'}</span></td>
-      <td><span class="sig ${sigCls(d.transformer_signal)}" style="font-size:9px;padding:2px 5px">${d.transformer_signal||'—'}</span></td>
-      <td><span class="sig ${sigCls(d.tft_signal)}" style="font-size:9px;padding:2px 5px">${d.tft_signal||'—'}</span></td>
       <td><span class="src-badge ${d.data_source==='real'?'src-real':'src-sim'}">${d.data_source==='real'?'Gerçek':'Sim'}</span></td>
     </tr>`;
   }).join('');
@@ -831,12 +834,7 @@ window.addEventListener('DOMContentLoaded', () => {
   fetchStats();
 });
 
-// Sharpe animation
-setInterval(()=>{
-  const v = (2.1+Math.random()*0.5).toFixed(2);
-  const el = document.getElementById('mSharpe');
-  if(el) el.textContent = v;
-}, 20000);
+// Sharpe ratio is updated from /api/backtest_all via fetchStats
 </script>
 </body>
 </html>

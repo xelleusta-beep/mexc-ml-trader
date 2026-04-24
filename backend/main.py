@@ -60,7 +60,10 @@ portfolio = {
     "initial_capital": 100000.0
 }
 
-PERSISTENCE_FILE = "persistence.json"
+# Persistence: env var > kalıcı disk (/var/data) > proje kökü
+_PERSIST_DIR = os.getenv("PERSIST_DIR", os.path.join(os.path.dirname(__file__), ".."))
+PERSISTENCE_FILE = os.path.join(_PERSIST_DIR, "persistence.json")
+MODEL_FILE = os.path.join(_PERSIST_DIR, "ml_model.joblib")
 MAX_OPEN_POSITIONS = 30
 MIN_VOLUME_24H = 10000000.0  # $10M
 
@@ -215,19 +218,45 @@ async def auto_train_on_startup():
             klines_bt = await fetch_klines(client, "BTC_USDT", interval="Min15", limit=300)
             if klines_bt:
                 ml_engine.run_backtest(klines_bt)
+        # Modeli diske kaydet
+        ml_engine.save(MODEL_FILE)
     else:
         logger.warning("Otomatik eğitim başarısız — MEXC API erişilemiyor olabilir")
+
+async def keep_alive_loop():
+    """Self-ping every 14 minutes to prevent Render free tier sleep"""
+    await asyncio.sleep(60)  # Wait for app to start
+    app_url = os.getenv("RENDER_EXTERNAL_URL", "")
+    if not app_url:
+        logger.info("RENDER_EXTERNAL_URL not set, keep-alive disabled")
+        return
+    logger.info(f"Keep-alive loop started → {app_url}/health")
+    while True:
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.get(f"{app_url}/health", timeout=10)
+                logger.debug(f"Keep-alive ping: {r.status_code}")
+        except Exception as e:
+            logger.debug(f"Keep-alive ping failed: {e}")
+        await asyncio.sleep(840)  # 14 minutes
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 MEXC ML Trading System başlatılıyor...")
     load_data()
+    # Model önceki oturumdan yükle (varsa eğitimi atla)
+    if ml_engine.load(MODEL_FILE):
+        logger.info("✅ Önceki model yüklendi — yeniden eğitim gerekmez")
+    else:
+        logger.info("Model bulunamadı — başlatma sonrası otomatik eğitim yapılacak")
     asyncio.create_task(scanner_loop())
     asyncio.create_task(broadcast_loop())
     asyncio.create_task(auto_train_on_startup())
+    asyncio.create_task(keep_alive_loop())
     yield
     save_data()
-    logger.info("Sistem kapatılıyor...")
+    ml_engine.save(MODEL_FILE)
+    logger.info("Sistem kapatılıyor — veri ve model kaydedildi")
 
 app = FastAPI(title="MEXC ML Trader", lifespan=lifespan)
 
@@ -637,6 +666,7 @@ async def trigger_training(symbol: str):
     if klines is None:
         return {"success":False,"error":"MEXC kline verisi alınamadı"}
     result = ml_engine.train(klines, sym)
+    ml_engine.save(MODEL_FILE)
     return {"success":True,"data":result}
 
 @app.post("/api/train_all")
@@ -660,6 +690,7 @@ async def train_all():
         ml_engine.rf.fit(Xall, yall)
         ml_engine._trained = True
         logger.info(f"Global model eğitildi — {len(Xall)} sample, {len(trained)} pair")
+        ml_engine.save(MODEL_FILE)
         return {"success":True,"pairs":trained,"n_samples":len(Xall)}
     return {"success":False,"error":"Veri alınamadı"}
 
