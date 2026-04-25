@@ -393,6 +393,10 @@ function connect() {
   ws.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data);
+      if(msg.type === 'init' && msg.portfolio) {
+          const pnl = msg.portfolio.capital - msg.portfolio.start_capital;
+          document.getElementById('sPnl').textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(0);
+      }
       if(msg.data && Array.isArray(msg.data)) {
         processData(msg.data, msg.timestamp);
       }
@@ -635,28 +639,29 @@ function addLog(cls, msg) {
 
 // ─── MODEL INFO ───────────────────────────────────────────────────────
 function updateModelInfo(info) {
-  document.getElementById('mAcc').textContent = info.accuracy+'%';
-  document.getElementById('mAcc').className = 'metric-val '+(info.accuracy>70?'up':'down');
-  document.getElementById('mPred').textContent = (info.predictions_made||0).toLocaleString();
-  document.getElementById('sAcc').textContent = info.accuracy+'%';
-  const conf = Math.min(95, Math.max(55, info.accuracy));
-  document.getElementById('mConf').textContent = conf.toFixed(0)+'%';
-  document.getElementById('confFill').style.width = conf+'%';
+  const acc = (info.wf_result && info.wf_result.accuracy) ? info.wf_result.accuracy : 0;
+  document.getElementById('mAcc').textContent = acc + '%';
+  document.getElementById('mAcc').className = 'metric-val ' + (acc > 40 ? 'up' : 'down');
+  document.getElementById('mPred').textContent = (info.predictions_made || 0).toLocaleString();
+  document.getElementById('sAcc').textContent = acc + '%';
+  const conf = Math.min(95, Math.max(55, acc + 20)); // Base confidence derived from accuracy
+  document.getElementById('mConf').textContent = conf.toFixed(0) + '%';
+  document.getElementById('confFill').style.width = conf + '%';
 }
 
 function updateStats(s) {
-  if(s.win_rate) {
-    document.getElementById('sWin').textContent = s.win_rate+'%';
-    document.getElementById('sWin').className = 'stat-value '+(s.win_rate>60?'up':'down');
+  if (s.win_rate !== undefined) {
+    document.getElementById('sWin').textContent = s.win_rate + '%';
+    document.getElementById('sWin').className = 'stat-value ' + (s.win_rate > 50 ? 'up' : 'down');
   }
-  if(s.model_accuracy) {
-    document.getElementById('sAcc').textContent = s.model_accuracy+'%';
-    document.getElementById('mAcc').textContent = s.model_accuracy+'%';
+  if (s.model_accuracy !== undefined) {
+    document.getElementById('sAcc').textContent = s.model_accuracy + '%';
+    document.getElementById('mAcc').textContent = s.model_accuracy + '%';
   }
   if(s.total_pnl !== undefined) {
     document.getElementById('sPnl').textContent = (s.total_pnl>=0?'+':'')+'$'+s.total_pnl.toFixed(0);
     document.getElementById('sPnl').className = 'stat-value '+(s.total_pnl>=0?'up':'down');
-    document.getElementById('sPnlSub').textContent = s.longs+'L '+s.shorts+'S · '+s.holds+' Hold';
+    document.getElementById('sPnlSub').textContent = s.longs+'L '+s.shorts+'S · Kasa: $'+(s.portfolio_capital || 0).toLocaleString();
   }
 }
 

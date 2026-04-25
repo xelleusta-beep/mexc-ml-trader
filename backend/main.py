@@ -48,12 +48,56 @@ async def send_telegram_message(text: str):
         logger.error(f"Telegram error: {e}")
 
 # ── Globals ──────────────────────────────────────────────────────────────────
+MAX_OPEN_POSITIONS = 30
+MIN_VOLUME_24H = 10000000 # $10M
+
 ml_engine = MLEngine()
 active_connections: List[WebSocket] = []
 scanner_cache: dict = {}
 agent_states: dict = {}
+portfolio: dict = {"capital": 100000.0, "start_capital": 100000.0}
+from collections import deque
+trade_history = deque(maxlen=100)
 
 MEXC_BASE = "https://contract.mexc.com/api/v1/contract"
+PERSISTENCE_FILE = "persistence.json"
+
+def json_serial(obj):
+    if isinstance(obj, (datetime,)):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+def save_data():
+    try:
+        data = {
+            "agent_states": agent_states,
+            "portfolio": portfolio,
+            "trade_history": list(trade_history)
+        }
+        with open(PERSISTENCE_FILE, "w") as f:
+            json.dump(data, f, default=json_serial)
+    except Exception as e:
+        logger.error(f"Save error: {e}")
+
+def load_data():
+    global agent_states, portfolio, trade_history
+    if os.path.exists(PERSISTENCE_FILE):
+        try:
+            with open(PERSISTENCE_FILE, "r") as f:
+                data = json.load(f)
+                loaded_states = data.get("agent_states", {})
+                # Parse dates
+                for sym, st in loaded_states.items():
+                    if st.get("last_exit_time"):
+                        st["last_exit_time"] = datetime.fromisoformat(st["last_exit_time"])
+                    if st.get("active_pos") and st["active_pos"].get("entry_time_raw"):
+                        st["active_pos"]["entry_time_raw"] = datetime.fromisoformat(st["active_pos"]["entry_time_raw"])
+                agent_states.update(loaded_states)
+                portfolio.update(data.get("portfolio", {}))
+                trade_history.extend(data.get("trade_history", []))
+                logger.info(f"💾 Veriler yüklendi. Kasa: ${portfolio['capital']:.2f}")
+        except Exception as e:
+            logger.error(f"Load error: {e}")
 
 # Top 60 MEXC Futures pairs
 FUTURES_PAIRS = [
@@ -163,10 +207,12 @@ async def auto_train_on_startup():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 MEXC ML Trading System başlatılıyor...")
+    load_data()
     asyncio.create_task(scanner_loop())
     asyncio.create_task(broadcast_loop())
     asyncio.create_task(auto_train_on_startup())
     yield
+    save_data()
     logger.info("Sistem kapatılıyor...")
 
 app = FastAPI(title="MEXC ML Trader", lifespan=lifespan)
@@ -256,7 +302,16 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
     st = agent_states[symbol]
 
     # Check for new entry - Strict real data only + Cooldown + Distance check
-    can_enter = st["active_pos"] is None and prediction["signal"] in ["LONG", "SHORT"] and price > 0 and prediction["data_quality"] == "real"
+    active_count = sum(1 for s in agent_states.values() if s.get("active_pos") is not None)
+
+    can_enter = (
+        st["active_pos"] is None and
+        prediction["signal"] in ["LONG", "SHORT"] and
+        price > 0 and
+        prediction["data_quality"] == "real" and
+        active_count < MAX_OPEN_POSITIONS and
+        volume24h >= MIN_VOLUME_24H
+    )
 
     # Cooldown check (5 mins)
     if can_enter and st["last_exit_time"]:
@@ -281,11 +336,15 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
         entry_time_raw = datetime.utcnow()
         tr_time = (entry_time_raw + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
 
+        # Fixed position size: 1% of capital per trade with leverage
+        base_size = portfolio["capital"] * 0.01
+        leveraged_size = base_size * leverage
+
         st["active_pos"] = {
             "entry_price": price,
             "side": prediction["signal"],
             "leverage": leverage,
-            "size": 100 * leverage, # Assuming 100 USDT base size
+            "size": leveraged_size,
             "timestamp": tr_time,
             "entry_time_raw": entry_time_raw,
             "tp": tp,
@@ -361,7 +420,9 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
             if net_pnl > 0:
                 st["wins"] += 1
 
-            pnl_emoji = "🟢" if net_pnl > 0 else "🔴"
+            # Update global portfolio
+            portfolio["capital"] += net_pnl
+
             exit_time_raw = datetime.utcnow()
             tr_time_exit = (exit_time_raw + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
 
@@ -371,6 +432,22 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
             hours, remainder = divmod(seconds, 3600)
             minutes, seconds = divmod(remainder, 60)
             duration_str = f"{hours}sa {minutes}dk {seconds}sn" if hours > 0 else f"{minutes}dk {seconds}sn"
+
+            # Add to history
+            trade_history.append({
+                "symbol": symbol,
+                "side": pos["side"],
+                "entry": entry_price,
+                "exit": price,
+                "pnl": net_pnl,
+                "pnl_pct": (net_pnl / size) * 100,
+                "duration": duration_str,
+                "reason": exit_reason,
+                "timestamp": tr_time_exit
+            })
+            save_data()
+
+            pnl_emoji = "🟢" if net_pnl > 0 else "🔴"
 
             curr_indicators = ", ".join(prediction["indicators"])
 
@@ -449,9 +526,9 @@ async def get_stats():
         return {"success": True, "data": {}}
 
     vals = list(scanner_cache.values())
-    total_pnl = sum(agent_states.get(v["symbol"], {}).get("pnl", 0) for v in vals)
-    total_trades = sum(agent_states.get(v["symbol"], {}).get("trades", 0) for v in vals)
-    total_wins = sum(agent_states.get(v["symbol"], {}).get("wins", 0) for v in vals)
+    total_pnl = portfolio["capital"] - portfolio["start_capital"]
+    total_trades = sum(st.get("trades", 0) for st in agent_states.values())
+    total_wins = sum(st.get("wins", 0) for st in agent_states.values())
 
     longs = [v for v in vals if v["signal"] == "LONG"]
     shorts = [v for v in vals if v["signal"] == "SHORT"]
@@ -462,6 +539,7 @@ async def get_stats():
         "data": {
             "total_pairs": len(vals),
             "total_pnl": round(total_pnl, 2),
+            "portfolio_capital": round(portfolio["capital"], 2),
             "total_trades": total_trades,
             "win_rate": round(total_wins / total_trades * 100, 1) if total_trades > 0 else 0,
             "longs": len(longs),
@@ -470,6 +548,14 @@ async def get_stats():
             "model_accuracy": round(ml_engine.get_accuracy(), 1),
             "timestamp": datetime.utcnow().isoformat(),
         }
+    }
+
+@app.get("/api/history")
+async def get_history():
+    """Get trade history"""
+    return {
+        "success": True,
+        "data": list(trade_history)
     }
 
 @app.get("/api/model")
@@ -554,6 +640,8 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.send_text(json.dumps({
                 "type": "init",
                 "data": list(scanner_cache.values()),
+                "portfolio": portfolio,
+                "history": list(trade_history),
                 "timestamp": datetime.utcnow().isoformat(),
             }))
         while True:
