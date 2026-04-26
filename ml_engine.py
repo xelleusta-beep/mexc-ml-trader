@@ -1226,17 +1226,39 @@ class RFModel:
         logger.info(f"Numpy RF fit — 40 trees, {len(X)} sample")
 
     def _build_tree(self, X, y, depth):
-        if depth==0 or len(np.unique(y))==1 or len(X)<4:
-            vals,cnt=np.unique(y,return_counts=True); return ("L",int(vals[cnt.argmax()]))
-        bf,bt,bg=0,0.0,-1
+        # Safe base case
+        if depth <= 0 or len(X) < 4:
+            vals, cnt = np.unique(y, return_counts=True)
+            return ("L", int(vals[cnt.argmax()]) if len(vals) > 0 else 0)
+
+        unique_y = np.unique(y)
+        if len(unique_y) == 1:
+            return ("L", int(unique_y[0]))
+
+        bf, bt, bg = 0, 0.0, -1.0
         for f in range(X.shape[1]):
-            for t in np.percentile(X[:,f],[25,50,75]):
-                lm=X[:,f]<=t
-                if lm.sum()<2 or (~lm).sum()<2: continue
-                g=self._gini(y)-len(y[lm])/len(y)*self._gini(y[lm])-len(y[~lm])/len(y)*self._gini(y[~lm])
-                if g>bg: bg,bf,bt=g,f,t
-        lm=X[:,bf]<=bt
-        return ("S",bf,bt,self._build_tree(X[lm],y[lm],depth-1),self._build_tree(X[~lm],y[~lm],depth-1))
+            for t in np.percentile(X[:, f], [25, 50, 75]):
+                lm = X[:, f] <= t
+                left_count, right_count = lm.sum(), (~lm).sum()
+                if left_count < 2 or right_count < 2:
+                    continue
+                g = self._gini(y) - (left_count/len(y))*self._gini(y[lm]) - (right_count/len(y))*self._gini(y[~lm])
+                if g > bg:
+                    bg, bf, bt = g, f, t
+
+        # No valid split found - return leaf
+        if bg <= 0:
+            vals, cnt = np.unique(y, return_counts=True)
+            return ("L", int(vals[cnt.argmax()]) if len(vals) > 0 else 0)
+
+        lm = X[:, bf] <= bt
+        if lm.sum() == 0 or (~lm).sum() == 0:
+            vals, cnt = np.unique(y, return_counts=True)
+            return ("L", int(vals[cnt.argmax()]) if len(vals) > 0 else 0)
+
+        left_child = self._build_tree(X[lm], y[lm], depth - 1)
+        right_child = self._build_tree(X[~lm], y[~lm], depth - 1)
+        return ("S", bf, bt, left_child, right_child)
 
     def _gini(self,y):
         _,c=np.unique(y,return_counts=True); p=c/len(y); return 1-float(np.sum(p**2))
