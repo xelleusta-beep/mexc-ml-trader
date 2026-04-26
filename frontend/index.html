@@ -268,7 +268,7 @@ html,body{height:100%;font-family:var(--font-std);font-size:14px;background:var(
           <tr>
             <th>Durum</th><th>Pair</th><th>Sinyal</th><th>Güven</th>
             <th>Fiyat</th><th>PnL</th><th>Win%</th><th>Kaldıraç</th>
-            <th>İndikatörler</th><th>RF</th><th>XGB</th><th>LSTM</th><th>TRF</th><th>TFT</th><th>Veri</th>
+            <th>İndikatörler</th><th>GBM</th><th>RF</th><th>ML Onay</th><th>Hacim</th><th>Veri</th>
           </tr>
         </thead>
         <tbody id="agentBody"></tbody>
@@ -301,12 +301,14 @@ html,body{height:100%;font-family:var(--font-std);font-size:14px;background:var(
 
   <!-- ML INFO -->
   <div class="panel anim">
-    <div class="panel-header"><div class="panel-title"><div class="dot" style="background:var(--accent2)"></div>ML Ensemble Modeli</div></div>
+    <div class="panel-header"><div class="panel-title"><div class="dot" style="background:var(--accent2)"></div>ML Ensemble Modeli — Strict Entry</div></div>
     <div style="padding:14px 16px">
-      <div class="metric"><span class="metric-label">Mimari</span><span class="metric-val" style="color:var(--accent);font-size:11px">RF+XGB+LSTM+TRF+TFT</span></div>
+      <div class="metric"><span class="metric-label">Mimari</span><span class="metric-val" style="color:var(--accent);font-size:11px">GBM + RandomForest Ensemble</span></div>
       <div class="metric"><span class="metric-label">Accuracy</span><span class="metric-val up" id="mAcc">—</span></div>
       <div class="metric"><span class="metric-label">Sharpe Ratio</span><span class="metric-val" id="mSharpe">2.31</span></div>
       <div class="metric"><span class="metric-label">Tahmin Sayısı</span><span class="metric-val" id="mPred">—</span></div>
+      <div class="metric"><span class="metric-label" style="color:var(--green)">Min Confidence</span><span class="metric-val up">%75+</span></div>
+      <div class="metric"><span class="metric-label" style="color:var(--green)">Min Hacim (24h)</span><span class="metric-val up">$20M+</span></div>
       <div class="metric"><span class="metric-label">Stop Loss</span><span class="metric-val down">-2.5%</span></div>
       <div class="metric"><span class="metric-label">Take Profit</span><span class="metric-val up">+4.5%</span></div>
       <div style="margin-top:12px">
@@ -317,7 +319,8 @@ html,body{height:100%;font-family:var(--font-std);font-size:14px;background:var(
         <div class="prog-bar"><div class="prog-fill" id="confFill" style="width:0%"></div></div>
       </div>
       <div style="margin-top:12px;font-size:9px;color:var(--text3);text-align:center;padding:8px;background:var(--bg3);border-radius:6px;line-height:1.8">
-        RSI-14 · MACD(12,26,9) · BB(20) · EMA(9,21)<br>ATR-14 · OBV · MFI-14 · Volume Ratio
+        ⚠️ Sadece %75+ güven, $20M+ hacim VE modeller hemfikir ise işlem<br>
+        RSI-14 · MACD(12,26,9) · BB(20) · EMA(9,21) · ATR-14 · OBV · MFI-14
       </div>
     </div>
   </div>
@@ -527,6 +530,16 @@ function renderTable() {
       const cls = ind.startsWith('RSI')?'tg-rsi':ind==='MACD'?'tg-macd':ind==='BB'?'tg-bb':ind==='EMA'?'tg-ema':ind.startsWith('MFI')?'tg-mfi':'tg-vol';
       return `<span class="tag ${cls}">${ind}</span>`;
     }).join('');
+    
+    // ML Validation badges
+    const gbmBadge = `<span class="sig ${sigCls(d.gbm_signal)}" style="font-size:9px;padding:2px 5px">${d.gbm_signal||'—'} ${(d.gbm_confidence||0).toFixed(0)}%</span>`;
+    const rfBadge = `<span class="sig ${sigCls(d.rf_signal)}" style="font-size:9px;padding:2px 5px">${d.rf_signal||'—'} ${(d.rf_confidence||0).toFixed(0)}%</span>`;
+    const mlAgreeBadge = d.models_agree 
+      ? `<span class="tag tg-macd">✅ ONAYLI</span>`
+      : `<span class="tag tg-rsi">❌ AYRIŞMA</span>`;
+    const volBadge = d.volume_ok 
+      ? `<span class="tag tg-mfi">$${(d.volume_24h/1e6).toFixed(1)}M ✓</span>`
+      : `<span class="tag tg-rsi">$${(d.volume_24h/1e6).toFixed(1)}M ✗</span>`;
 
     return `<tr>
       <td><span class="status-dot s-active"></span></td>
@@ -538,11 +551,10 @@ function renderTable() {
       <td class="${(d.win_rate||0)>=50?'up':'down'}">${(d.win_rate||0).toFixed(0)}%</td>
       <td style="color:var(--accent2)">${d.leverage||5}x</td>
       <td>${tags}</td>
-      <td><span class="sig ${sigCls(d.rf_signal)}" style="font-size:9px;padding:2px 5px">${d.rf_signal||'—'}</span></td>
-      <td><span class="sig ${sigCls(d.xgb_signal)}" style="font-size:9px;padding:2px 5px">${d.xgb_signal||'—'}</span></td>
-      <td><span class="sig ${sigCls(d.lstm_signal)}" style="font-size:9px;padding:2px 5px">${d.lstm_signal||'—'}</span></td>
-      <td><span class="sig ${sigCls(d.transformer_signal)}" style="font-size:9px;padding:2px 5px">${d.transformer_signal||'—'}</span></td>
-      <td><span class="sig ${sigCls(d.tft_signal)}" style="font-size:9px;padding:2px 5px">${d.tft_signal||'—'}</span></td>
+      <td>${gbmBadge}</td>
+      <td>${rfBadge}</td>
+      <td>${mlAgreeBadge}</td>
+      <td>${volBadge}</td>
       <td><span class="src-badge ${d.data_source==='real'?'src-real':'src-sim'}">${d.data_source==='real'?'Gerçek':'Sim'}</span></td>
     </tr>`;
   }).join('');

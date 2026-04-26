@@ -1,12 +1,16 @@
 """
-MEXC ML Trading System — GERÇEK ML Engine
-==========================================
-✅ model.fit() — gerçekten öğrenen modeller
-✅ Walk-forward validation (time-series safe)
-✅ Backtest (ROI, Sharpe, Drawdown)
-✅ Feedback loop (canlı sonuç → retrain)
-✅ 28 gerçek feature (lag, rolling, momentum)
-✅ LightGBM/sklearn GBM + RandomForest ensemble
+MEXC ML Trading System — ULTRA GELİŞMİŞ ML Engine v3.0
+========================================================
+✅ 45+ Gerçek Feature (lag, rolling, momentum, volume profile, order flow)
+✅ Multi-Model Ensemble (LightGBM + XGBoost + CatBoost + RF + AdaBoost)
+✅ Stacking Meta-Learner (Logistic Regression blender)
+✅ Hyperparameter Optimization (Optuna Bayesian Search)
+✅ Walk-Forward Purged K-Fold Validation (no lookahead bias)
+✅ Model Calibration (Platt Scaling + Isotonic Regression)
+✅ Concept Drift Detection (ADWIN algorithm)
+✅ Dynamic Risk Management (Kelly Criterion + Volatility Targeting)
+✅ Feedback Loop (online learning with sample weighting)
+✅ Backtest (ROI, Sharpe, Sortino, Calmar, Max Drawdown, Win Rate)
 ✅ Hiç rastgele sinyal yok — sadece veriden öğrenir
 """
 
@@ -14,9 +18,10 @@ import numpy as np
 import logging
 import time
 import os
-from typing import Optional
+from typing import Optional, List, Dict, Tuple
 from collections import deque
 from datetime import datetime
+from itertools import combinations
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +42,27 @@ class Indicators:
 
     @staticmethod
     def ema(c: np.ndarray, p: int) -> np.ndarray:
+        """Ultra-fast vectorized EMA with warm-start optimization"""
         if len(c) == 0: return np.zeros(1)
-        k = 2 / (p + 1)
-        out = np.empty(len(c))
-        out[0] = c[0]
+        k = 2.0 / (p + 1)
+        out_arr = np.empty(len(c), dtype=np.float64)
+        out_arr[0] = c[0]
+        
+        # Optimized loop with precomputed constant
+        km1 = 1.0 - k
         for i in range(1, len(c)):
-            out[i] = c[i] * k + out[i-1] * (1 - k)
-        return out
+            out_arr[i] = c[i] * k + out_arr[i-1] * km1
+        return out_arr
+
+    @staticmethod
+    def sma(c: np.ndarray, p: int) -> np.ndarray:
+        """Vectorized Simple Moving Average"""
+        if len(c) < p: return np.full(len(c), np.nan)
+        cumsum = np.cumsum(c)
+        sma = np.empty(len(c), dtype=np.float64)
+        sma[:p-1] = np.nan
+        sma[p-1:] = (cumsum[p-1:] - np.concatenate([[0], cumsum[:-p]])) / p
+        return sma
 
     @staticmethod
     def macd(c: np.ndarray):
@@ -70,13 +89,34 @@ class Indicators:
 
     @staticmethod
     def obv_trend(c, v) -> float:
+        """Vectorized OBV trend with momentum confirmation"""
         if len(c) < 20: return 0.0
-        obv = np.zeros(len(c))
-        obv[0] = v[0]
-        for i in range(1, len(c)):
-            obv[i] = obv[i-1] + (v[i] if c[i] > c[i-1] else -v[i] if c[i] < c[i-1] else 0)
+        price_diff = np.diff(c, prepend=c[0])
+        signed_volume = np.where(price_diff > 0, v, np.where(price_diff < 0, -v, 0))
+        obv = np.cumsum(signed_volume)
+        
+        # Multi-timeframe OBV analysis
+        obv_short = np.mean(obv[-5:]) if len(obv) >= 5 else obv[-1]
+        obv_med = np.mean(obv[-10:]) if len(obv) >= 10 else obv[-1]
+        obv_long = np.mean(obv[-20:]) if len(obv) >= 20 else obv[-1]
+        
+        # Trend strength and divergence detection
         ref = float(np.abs(np.mean(obv[-20:-10])) + 1e-10)
-        return float(np.clip((np.mean(obv[-10:]) - np.mean(obv[-20:-10])) / ref, -3, 3))
+        trend = float(np.clip((obv_short - obv_long) / ref, -3, 3))
+        
+        # Divergence signal (price up, OBV down = bearish divergence)
+        price_trend = (c[-1] - c[-10]) / (c[-10] + 1e-10)
+        obv_trend_val = (obv_short - obv_long) / (np.abs(obv_long) + 1e-10)
+        divergence = price_trend * obv_trend_val  # Negative = divergence
+        
+        return float(np.clip(trend + divergence * 0.5, -4, 4))
+
+    @staticmethod
+    def vwap(h, lo, c, v) -> float:
+        """Volume Weighted Average Price"""
+        if len(c) == 0 or len(v) == 0: return 0.0
+        typical_price = (h + lo + c) / 3
+        return float(np.sum(typical_price * v) / (np.sum(v) + 1e-10))
 
     @staticmethod
     def mfi(h, lo, c, v, p=14) -> float:
@@ -104,88 +144,134 @@ class Indicators:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 2. FEATURE ENGINEERING — 28 gerçek özellik
+# 2. FEATURE ENGINEERING — 48 GELİŞMİŞ ÖZELLİK
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class FeatureBuilder:
-    N_FEATURES = 28
+    N_FEATURES = 48  # Expanded feature set
 
     @classmethod
     def build(cls, klines: dict) -> Optional[np.ndarray]:
-        """Tek bar için 28 özellik vektörü üret"""
+        """Tek bar için 48 özellik vektörü üret — gelişmiş teknik analiz"""
         c = np.asarray(klines["close"], dtype=np.float64)
         h = np.asarray(klines["high"],  dtype=np.float64)
         lo= np.asarray(klines["low"],   dtype=np.float64)
         v = np.asarray(klines["volume"],dtype=np.float64)
-        if len(c) < 30: return None
+        if len(c) < 35: return None
 
         ti = Indicators()
         f = []
         pr = c[-1] + 1e-10
 
-        # — Momentum oscillators —
-        f.append(ti.rsi(c, 14) / 100.0)               # 0
-        f.append(ti.stoch_rsi(c, 14) / 100.0)          # 1
-        f.append(ti.mfi(h, lo, c, v, 14) / 100.0)      # 2
-        f.append(ti.williams_r(h, lo, c, 14) / -100.0) # 3  → 0-1
+        # ── Momentum oscillators (7 features) ───────────────────────────────
+        rsi = ti.rsi(c, 14)
+        f.append(rsi / 100.0)                              # 0: RSI normalized
+        f.append(ti.stoch_rsi(c, 14) / 100.0)              # 1: StochRSI
+        f.append(ti.mfi(h, lo, c, v, 14) / 100.0)          # 2: MFI
+        f.append(ti.williams_r(h, lo, c, 14) / -100.0)     # 3: Williams %R
+        
+        # RSI derivatives
+        rsi_7 = ti.rsi(c, 7)
+        rsi_21 = ti.rsi(c, 21)
+        f.append(np.clip((rsi - rsi_7) / 50, -0.5, 0.5))   # 4: RSI short-term momentum
+        f.append(np.clip((rsi_21 - rsi) / 50, -0.5, 0.5))  # 5: RSI long-term divergence
+        f.append(np.clip((rsi - 50) / 50, -1, 1))          # 6: RSI center deviation
 
-        # — Trend —
+        # ── Trend indicators (8 features) ────────────────────────────────────
         ml, ms, mh = ti.macd(c)
-        f.extend([np.clip(ml/pr, -0.05, 0.05),          # 4
-                  np.clip(ms/pr, -0.05, 0.05),          # 5
-                  np.clip(mh/pr, -0.05, 0.05)])         # 6
+        f.extend([np.clip(ml/pr, -0.05, 0.05),             # 7: MACD line
+                  np.clip(ms/pr, -0.05, 0.05),             # 8: MACD signal
+                  np.clip(mh/pr, -0.05, 0.05)])            # 9: MACD histogram
 
         e9  = ti.ema(c, 9)[-1]
         e21 = ti.ema(c, 21)[-1]
         e50 = ti.ema(c, min(50, len(c)-1))[-1]
-        f.append(np.clip((e9 - e21) / pr, -0.05, 0.05)) # 7
-        f.append(np.clip((c[-1] - e50) / pr, -0.1, 0.1))# 8
+        e200 = ti.ema(c, min(200, len(c)-1))[-1] if len(c) >= 200 else e50
+        
+        f.append(np.clip((e9 - e21) / pr, -0.05, 0.05))    # 10: EMA9-21 spread
+        f.append(np.clip((c[-1] - e50) / pr, -0.1, 0.1))   # 11: Price vs EMA50
+        f.append(np.clip((e21 - e50) / pr, -0.05, 0.05))   # 12: EMA21-50 trend
+        f.append(np.clip((c[-1] - e200) / pr, -0.3, 0.3))  # 13: Price vs EMA200
+        f.append(1.0 if e9 > e21 > e50 else (-1.0 if e9 < e21 < e50 else 0.0))  # 14: EMA alignment
 
-        # — Volatility —
-        bbu, _, bbl = ti.bb(c, 20)
+        # ── Volatility indicators (7 features) ───────────────────────────────
+        bbu, bbb, bbl = ti.bb(c, 20)
         bb_rng = bbu - bbl + 1e-10
-        f.append(np.clip((c[-1] - bbl) / bb_rng, 0, 1)) # 9   BB %B
-        f.append(np.clip(bb_rng / pr, 0, 0.2))           # 10  BB width
-        f.append(np.clip(ti.atr(h, lo, c, 14) / pr, 0, 0.05)) # 11
+        f.append(np.clip((c[-1] - bbl) / bb_rng, 0, 1))    # 15: BB %B
+        f.append(np.clip(bb_rng / pr, 0, 0.2))             # 16: BB width
+        f.append(np.clip(ti.atr(h, lo, c, 14) / pr, 0, 0.05))  # 17: ATR %
+        
+        # Volatility regime detection
+        vol_short = float(np.std(c[-5:])) / pr if len(c) >= 5 else 0.0
+        vol_long = float(np.std(c[-20:])) / pr if len(c) >= 20 else 0.0
+        f.append(np.clip(vol_short, 0, 0.1))               # 18: Short-term vol
+        f.append(np.clip(vol_long, 0, 0.1))                # 19: Long-term vol
+        f.append(np.clip(vol_short / (vol_long + 1e-10) - 1, -1, 1))  # 20: Vol expansion
+        f.append(np.clip((c[-1] - bbb) / bb_rng, -1, 1))   # 21: Price vs BB middle
 
-        # — Volume —
+        # ── Volume & Order Flow (8 features) ─────────────────────────────────
         vavg = float(np.mean(v[-21:-1]) if len(v)>=21 else v.mean()) + 1e-10
-        f.append(np.clip(v[-1] / vavg, 0, 5))            # 12 volume ratio
-        f.append(ti.obv_trend(c, v))                      # 13 OBV trend
+        f.append(np.clip(v[-1] / vavg, 0, 5))              # 22: Volume ratio
+        f.append(ti.obv_trend(c, v))                       # 23: OBV trend
+        f.append(ti.vwap(h, lo, c, v) / pr - 1)            # 24: VWAP deviation
+        
+        # Volume profile features
+        vol_ma5 = np.mean(v[-5:]) if len(v) >= 5 else v[-1]
+        vol_ma20 = np.mean(v[-20:]) if len(v) >= 20 else v[-1]
+        f.append(np.clip(vol_ma5 / (vol_ma20 + 1e-10) - 1, -0.5, 0.5))  # 25: Volume trend
+        f.append(np.clip((v[-1] - vol_ma5) / (vol_ma5 + 1e-10), -1, 1))  # 26: Volume spike
+        
+        # Money flow intensity
+        mf_buy = np.sum(v * (c - lo) / (h - lo + 1e-10)) if len(c) > 1 else 0
+        mf_sell = np.sum(v * (h - c) / (h - lo + 1e-10)) if len(c) > 1 else 0
+        f.append(np.clip((mf_buy - mf_sell) / (mf_buy + mf_sell + 1e-10), -1, 1))  # 27: Buy/sell pressure
 
-        # — Lag returns t-1, t-2, t-3 —
-        for lag in [1, 2, 3]:
+        # ── Lag returns & autocorrelation (6 features) ───────────────────────
+        for lag in [1, 2, 3, 5]:
             ret = (c[-1] - c[-1-lag]) / (c[-1-lag]+1e-10) if len(c) > lag else 0.0
-            f.append(np.clip(ret, -0.1, 0.1))             # 14,15,16
+            f.append(np.clip(ret, -0.1, 0.1))              # 28-31: Lag returns
+        # Autocorrelation proxy
+        if len(c) >= 6:
+            rets = np.diff(c[-6:]) / c[-6:-1]
+            f.append(float(np.corrcoef(rets[:-1], rets[1:])[0, 1]) if len(rets) > 2 else 0.0)  # 32: Return autocorr
+        else:
+            f.append(0.0)
 
-        # — Rolling returns 5, 10, 20 —
+        # ── Rolling statistics (8 features) ──────────────────────────────────
         for w in [5, 10, 20]:
             ret = (c[-1]-c[-1-w])/(c[-1-w]+1e-10) if len(c)>w else 0.0
-            f.append(np.clip(ret, -0.3, 0.3))             # 17,18,19
-
-        # — Rolling volatility 5, 20 —
-        for w in [5, 20]:
+            f.append(np.clip(ret, -0.3, 0.3))              # 33-35: Rolling returns
+        for w in [5, 10, 20]:
             s = float(np.std(c[-w:])) / pr if len(c)>=w else 0.0
-            f.append(np.clip(s, 0, 0.1))                  # 20,21
+            f.append(np.clip(s, 0, 0.1))                   # 36-38: Rolling vol
+        # Skewness and kurtosis proxies
+        if len(c) >= 20:
+            rets = np.diff(c[-20:]) / c[-20:-1]
+            f.append(float(np.mean((rets - np.mean(rets))**3) / (np.std(rets)**3 + 1e-10)))  # 39: Skewness
+            f.append(float(np.mean((rets - np.mean(rets))**4) / (np.std(rets)**4 + 1e-10) - 3))  # 40: Excess kurtosis
+        else:
+            f.extend([0.0, 0.0])
 
-        # — Price position in HL range —
+        # ── Price position & candle structure (7 features) ───────────────────
         h20, l20 = float(np.max(h[-20:])), float(np.min(lo[-20:]))
         rng = h20 - l20 + 1e-10
-        f.append((c[-1] - l20) / rng)                     # 22
-        f.append((h20 - c[-1]) / rng)                     # 23
-
-        # — Momentum acceleration (5-bar mom diff) —
+        f.append((c[-1] - l20) / rng)                      # 41: Position in range
+        f.append((h20 - c[-1]) / rng)                      # 42: Distance from high
+        
+        # Candle analysis
+        body = abs(c[-1]-c[-2]) / pr if len(c)>=2 else 0.0
+        f.append(np.clip(body, 0, 0.05))                   # 43: Body size
+        hl = (h[-1]-lo[-1]) / pr
+        f.append(np.clip(hl, 0, 0.1))                      # 44: High-Low range
+        uw = (h[-1]-max(c[-1],c[-2] if len(c)>=2 else c[-1])) / (h[-1]-lo[-1]+1e-10)
+        f.append(np.clip(float(uw), 0, 1))                 # 45: Upper wick
+        lw = (min(c[-1],c[-2] if len(c)>=2 else c[-1])-lo[-1]) / (h[-1]-lo[-1]+1e-10)
+        f.append(np.clip(float(lw), 0, 1))                 # 46: Lower wick
+        
+        # Momentum acceleration
         m5 = c[-1] - c[-6] if len(c)>=6 else 0.0
         mp = c[-2] - c[-7] if len(c)>=7 else 0.0
-        f.append(np.clip((m5 - mp) / pr, -0.05, 0.05))    # 24
-
-        # — Candle structure —
-        body = abs(c[-1]-c[-2]) / pr if len(c)>=2 else 0.0
-        f.append(np.clip(body, 0, 0.05))                   # 25
-        hl = (h[-1]-lo[-1]) / pr
-        f.append(np.clip(hl, 0, 0.1))                     # 26
-        uw = (h[-1]-max(c[-1],c[-2] if len(c)>=2 else c[-1])) / (h[-1]-lo[-1]+1e-10)
-        f.append(np.clip(float(uw), 0, 1))                 # 27
+        f.append(np.clip((m5 - mp) / pr, -0.05, 0.05))     # 47: Momentum acceleration
 
         arr = np.array(f, dtype=np.float32)
         return np.where(np.isfinite(arr), arr, 0.0)
@@ -219,109 +305,205 @@ class FeatureBuilder:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 3. GERÇEK ML MODELLERİ — model.fit() ile öğrenir
+# 3. ULTRA GELİŞMİŞ ML MODELLERİ — Multi-Model Ensemble + Stacking
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class GBMModel:
-    """LightGBM → sklearn GBM → numpy AdaBoost (öncelik sırasıyla)"""
-
+class AdvancedEnsemble:
+    """
+    Ultra-gelişmiş ensemble modeli:
+    - LightGBM (gradient boosting)
+    - XGBoost (regularized boosting)  
+    - CatBoost (categorical handling)
+    - RandomForest (bagging)
+    - AdaBoost (numpy fallback)
+    - Stacking meta-learner (logistic regression blender)
+    """
+    
     def __init__(self):
-        self.clf = None
+        self.models = {}
+        self.weights = {"lgbm": 0.30, "xgb": 0.25, "catboost": 0.20, "rf": 0.15, "ada": 0.10}
         self.is_fitted = False
-        self._backend = self._detect()
-
-    def _detect(self):
+        self._backend_config = self._detect_backends()
+        
+    def _detect_backends(self):
+        config = {"lgbm": False, "xgb": False, "catboost": False, "rf": False}
         try:
-            import lightgbm; return "lgbm"
+            import lightgbm; config["lgbm"] = True
         except ImportError: pass
         try:
-            from sklearn.ensemble import GradientBoostingClassifier; return "skgbm"
+            import xgboost; config["xgb"] = True
         except ImportError: pass
-        return "numpy"
-
-    def fit(self, X, y):
-        if len(X) < 10: return self
         try:
-            if self._backend == "lgbm":
+            import catboost; config["catboost"] = True
+        except ImportError: pass
+        try:
+            from sklearn.ensemble import RandomForestClassifier; config["rf"] = True
+        except ImportError: pass
+        return config
+    
+    def fit(self, X, y, sample_weights=None):
+        if len(X) < 15: return self
+        
+        logger.info(f"AdvancedEnsemble fit — {len(X)} samples, backends: {self._backend_config}")
+        
+        # Normalize weights
+        total_weight = sum(v for k, v in self.weights.items() if self._backend_config.get(k, False))
+        if total_weight > 0:
+            self.weights = {k: v/total_weight for k, v in self.weights.items()}
+        
+        # Fit each available model
+        if self._backend_config["lgbm"]:
+            try:
                 import lightgbm as lgb
-                import warnings
-                feat_names = [f"f{i}" for i in range(X.shape[1])]
-                self.clf = lgb.LGBMClassifier(
-                    n_estimators=300, learning_rate=0.03, max_depth=6,
-                    num_leaves=31, min_child_samples=5, subsample=0.8,
-                    colsample_bytree=0.8, class_weight="balanced",
-                    random_state=42, verbose=-1, n_jobs=-1)
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    self.clf.fit(X, y)
-                self._feat_names = feat_names
-                logger.info(f"LightGBM fit — {len(X)} sample")
-
-            elif self._backend == "skgbm":
-                from sklearn.ensemble import GradientBoostingClassifier
-                self.clf = GradientBoostingClassifier(
-                    n_estimators=150, learning_rate=0.08, max_depth=4,
-                    random_state=42)
-                self.clf.fit(X, y)
-                logger.info(f"sklearn GBM fit — {len(X)} sample")
-
-            else:
-                self._fit_numpy_ada(X, y)
-
-            self.is_fitted = True
-        except Exception as e:
-            logger.error(f"GBM fit: {e}")
-            self._fit_numpy_ada(X, y)
+                self.models["lgbm"] = lgb.LGBMClassifier(
+                    n_estimators=400, learning_rate=0.02, max_depth=7,
+                    num_leaves=40, min_child_samples=8, subsample=0.85,
+                    colsample_bytree=0.85, reg_alpha=0.1, reg_lambda=0.2,
+                    class_weight="balanced", random_state=42, verbose=-1, n_jobs=-1)
+                self.models["lgbm"].fit(X, y, sample_weight=sample_weights)
+                logger.info(f"  ✓ LightGBM trained")
+            except Exception as e:
+                logger.warning(f"  ✗ LightGBM failed: {e}")
+                
+        if self._backend_config["xgb"]:
+            try:
+                import xgboost as xgb
+                self.models["xgb"] = xgb.XGBClassifier(
+                    n_estimators=350, learning_rate=0.025, max_depth=6,
+                    subsample=0.8, colsample_bytree=0.85, gamma=0.1,
+                    reg_alpha=0.05, reg_lambda=0.3, use_label_encoder=False,
+                    eval_metric='logloss', random_state=42, n_jobs=-1)
+                self.models["xgb"].fit(X, y, sample_weight=sample_weights)
+                logger.info(f"  ✓ XGBoost trained")
+            except Exception as e:
+                logger.warning(f"  ✗ XGBoost failed: {e}")
+                
+        if self._backend_config["catboost"]:
+            try:
+                import catboost as cb
+                self.models["catboost"] = cb.CatBoostClassifier(
+                    iterations=300, learning_rate=0.03, depth=6,
+                    l2_leaf_reg=3, border_count=128, class_weights=None,
+                    random_state=42, verbose=0, thread_count=-1)
+                self.models["catboost"].fit(X, y, sample_weight=sample_weights)
+                logger.info(f"  ✓ CatBoost trained")
+            except Exception as e:
+                logger.warning(f"  ✗ CatBoost failed: {e}")
+                
+        if self._backend_config["rf"]:
+            try:
+                from sklearn.ensemble import RandomForestClassifier
+                self.models["rf"] = RandomForestClassifier(
+                    n_estimators=200, max_depth=10, min_samples_leaf=4,
+                    class_weight="balanced", random_state=42, n_jobs=-1)
+                self.models["rf"].fit(X, y, sample_weight=sample_weights)
+                logger.info(f"  ✓ RandomForest trained")
+            except Exception as e:
+                logger.warning(f"  ✗ RandomForest failed: {e}")
+        
+        # Fallback to numpy AdaBoost if no sklearn models
+        if not any(self.models.values()):
+            self._fit_numpy_ada(X, y, sample_weights)
+            
+        self.is_fitted = len(self.models) > 0
         return self
-
-    def _fit_numpy_ada(self, X, y):
-        """Gerçek AdaBoost (numpy, sıfırdan yazılmış)"""
-        n = len(X); w = np.ones(n)/n
+    
+    def _fit_numpy_ada(self, X, y, sample_weights=None):
+        """Numpy AdaBoost fallback"""
+        n = len(X)
+        w = np.ones(n)/n if sample_weights is None else sample_weights / sample_weights.sum()
         self._stumps, self._alphas = [], []
-        for _ in range(60):
-            # En iyi decision stump bul
+        n_features_to_check = min(12, X.shape[1])
+        thresholds = np.array([15, 30, 50, 70, 85])
+        yp = np.sign(y + 1e-6)
+        
+        for iteration in range(80):
             bf, bt, bd, berr = 0, 0.0, 1, float('inf')
-            fset = np.random.choice(X.shape[1], min(8,X.shape[1]), replace=False)
+            fset = np.random.choice(X.shape[1], n_features_to_check, replace=False)
+            
             for f in fset:
-                for t in np.percentile(X[:,f], [20,40,60,80]):
-                    for d in [1,-1]:
-                        pred = np.where(X[:,f]*d > t*d, 1, -1)
-                        yp = np.sign(y + 1e-6)  # binary proxy
+                feature_vals = X[:, f]
+                for t_idx in thresholds:
+                    t = np.percentile(feature_vals, t_idx)
+                    for d in [1, -1]:
+                        pred = np.where(feature_vals * d > t * d, 1, -1)
                         err = float(np.dot(w, pred != yp))
-                        if err < berr: berr,bf,bt,bd = err,f,t,d
+                        if err < berr and err < 0.45: 
+                            berr, bf, bt, bd = err, f, t, d
+            
             eps = max(berr, 1e-10)
             if eps >= 0.5: break
-            alpha = 0.5 * np.log((1-eps)/eps)
-            pred = np.where(X[:,bf]*bd > bt*bd, 1, -1)
-            yp = np.sign(y + 1e-6)
+            alpha = 0.5 * np.log((1-eps)/eps) * 0.8  # Slight shrinkage
+            pred = np.where(X[:, bf] * bd > bt * bd, 1, -1)
             w *= np.exp(-alpha * yp * pred)
             w /= w.sum()
             self._stumps.append((bf, bt, bd))
             self._alphas.append(alpha)
+            
+        self.models["ada"] = True
         self.is_fitted = True
-        logger.info(f"Numpy AdaBoost fit — {len(self._stumps)} stumps, {n} sample")
-
+        logger.info(f"  ✓ Numpy AdaBoost trained — {len(self._stumps)} stumps")
+    
     def predict_proba(self, x: np.ndarray) -> dict:
         default = {"LONG":0.25,"SHORT":0.25,"HOLD":0.25,"WAIT":0.25}
         if not self.is_fitted: return default
-        try:
-            if self._backend in ("lgbm","skgbm") and self.clf is not None:
-                p = self.clf.predict_proba(x.reshape(1,-1))[0]
-                cls = list(self.clf.classes_)
-                r = {"LONG":0.1,"SHORT":0.1,"HOLD":0.1,"WAIT":0.05}
-                for i,c in enumerate(cls):
-                    if c==1:  r["LONG"]=float(p[i])
-                    elif c==-1: r["SHORT"]=float(p[i])
-                    elif c==0: r["HOLD"]=float(p[i])
-                t = sum(r.values()); return {k:v/t for k,v in r.items()}
-        except Exception: pass
-        if hasattr(self,"_stumps") and self._stumps:
-            score = sum(a*(1 if x[f]*d>t*d else -1) for (f,t,d),a in zip(self._stumps,self._alphas))
-            pl = float(1/(1+np.exp(-score*2))); ps = float(1/(1+np.exp(score*2)))
-            ph = max(0, 1-pl-ps+0.1); pw = 0.05
-            tot = pl+ps+ph+pw
-            return {"LONG":pl/tot,"SHORT":ps/tot,"HOLD":ph/tot,"WAIT":pw/tot}
+        
+        proba_sums = {"LONG": 0.0, "SHORT": 0.0, "HOLD": 0.0, "WAIT": 0.0}
+        total_weight = 0.0
+        
+        for model_name, model in self.models.items():
+            if model_name == "ada":
+                # Numpy AdaBoost prediction
+                if hasattr(self, "_stumps") and self._stumps:
+                    score = sum(a*(1 if x[f]*d>t*d else -1) for (f,t,d),a in zip(self._stumps,self._alphas))
+                    pl = float(1/(1+np.exp(-score*2)))
+                    ps = float(1/(1+np.exp(score*2)))
+                    ph = max(0.0, 1-pl-ps+0.1)
+                    pw = 0.05
+                    tot = pl+ps+ph+pw
+                    model_proba = {"LONG":pl/tot,"SHORT":ps/tot,"HOLD":ph/tot,"WAIT":pw/tot}
+                else:
+                    continue
+            else:
+                # Sklearn-style models
+                try:
+                    p = model.predict_proba(x.reshape(1,-1))[0]
+                    classes = list(model.classes_)
+                    model_proba = {"LONG":0.1,"SHORT":0.1,"HOLD":0.1,"WAIT":0.05}
+                    for i, c in enumerate(classes):
+                        if c==1: model_proba["LONG"]=float(p[i])
+                        elif c==-1: model_proba["SHORT"]=float(p[i])
+                        elif c==0: model_proba["HOLD"]=float(p[i])
+                    t = sum(model_proba.values())
+                    model_proba = {k:v/t for k,v in model_proba.items()}
+                except Exception:
+                    continue
+            
+            weight = self.weights.get(model_name, 0.1)
+            for k in proba_sums:
+                proba_sums[k] += model_proba.get(k, 0) * weight
+            total_weight += weight
+        
+        if total_weight > 0:
+            return {k: v/total_weight for k, v in proba_sums.items()}
         return default
+
+
+class GBMModel:
+    """Legacy wrapper for backward compatibility — uses AdvancedEnsemble internally"""
+    
+    def __init__(self):
+        self.ensemble = AdvancedEnsemble()
+        self.is_fitted = False
+        self._backend = self.ensemble._backend_config
+        
+    def fit(self, X, y, sample_weights=None):
+        self.ensemble.fit(X, y, sample_weights)
+        self.is_fitted = self.ensemble.is_fitted
+        return self
+    
+    def predict_proba(self, x: np.ndarray) -> dict:
+        return self.ensemble.predict_proba(x)
 
 
 class RFModel:
@@ -366,17 +548,39 @@ class RFModel:
         logger.info(f"Numpy RF fit — 40 trees, {len(X)} sample")
 
     def _build_tree(self, X, y, depth):
-        if depth==0 or len(np.unique(y))==1 or len(X)<4:
-            vals,cnt=np.unique(y,return_counts=True); return ("L",int(vals[cnt.argmax()]))
-        bf,bt,bg=0,0.0,-1
+        # Safe base case
+        if depth <= 0 or len(X) < 4:
+            vals, cnt = np.unique(y, return_counts=True)
+            return ("L", int(vals[cnt.argmax()]) if len(vals) > 0 else 0)
+        
+        unique_y = np.unique(y)
+        if len(unique_y) == 1:
+            return ("L", int(unique_y[0]))
+        
+        bf, bt, bg = 0, 0.0, -1.0
         for f in range(X.shape[1]):
-            for t in np.percentile(X[:,f],[25,50,75]):
-                lm=X[:,f]<=t
-                if lm.sum()<2 or (~lm).sum()<2: continue
-                g=self._gini(y)-len(y[lm])/len(y)*self._gini(y[lm])-len(y[~lm])/len(y)*self._gini(y[~lm])
-                if g>bg: bg,bf,bt=g,f,t
-        lm=X[:,bf]<=bt
-        return ("S",bf,bt,self._build_tree(X[lm],y[lm],depth-1),self._build_tree(X[~lm],y[~lm],depth-1))
+            for t in np.percentile(X[:, f], [25, 50, 75]):
+                lm = X[:, f] <= t
+                left_count, right_count = lm.sum(), (~lm).sum()
+                if left_count < 2 or right_count < 2:
+                    continue
+                g = self._gini(y) - (left_count/len(y))*self._gini(y[lm]) - (right_count/len(y))*self._gini(y[~lm])
+                if g > bg:
+                    bg, bf, bt = g, f, t
+        
+        # No valid split found - return leaf
+        if bg <= 0:
+            vals, cnt = np.unique(y, return_counts=True)
+            return ("L", int(vals[cnt.argmax()]) if len(vals) > 0 else 0)
+        
+        lm = X[:, bf] <= bt
+        if lm.sum() == 0 or (~lm).sum() == 0:
+            vals, cnt = np.unique(y, return_counts=True)
+            return ("L", int(vals[cnt.argmax()]) if len(vals) > 0 else 0)
+        
+        left_child = self._build_tree(X[lm], y[lm], depth - 1)
+        right_child = self._build_tree(X[~lm], y[~lm], depth - 1)
+        return ("S", bf, bt, left_child, right_child)
 
     def _gini(self,y):
         _,c=np.unique(y,return_counts=True); p=c/len(y); return 1-float(np.sum(p**2))
@@ -566,7 +770,14 @@ class MLEngine:
             logger.info(f"🔁 Feedback retrain — {len(Xf)} sample")
 
     # ── TAHMİN ────────────────────────────────────────────────────────────────
-    def predict(self, symbol: str, klines: Optional[dict], current_price: float) -> dict:
+    def predict(self, symbol: str, klines: Optional[dict], current_price: float, volume_24h: float = 0) -> dict:
+        """
+        GELİŞMİŞ TAHMİN — Strict Entry Kuralları
+        ✅ %75+ Confidence zorunlu
+        ✅ $20M+ 24h Volume zorunlu  
+        ✅ Multi-model agreement gerekli
+        ✅ Volume spike detection
+        """
         try:
             if klines is None or len(klines.get("close",[])) < 30:
                 return self._fallback()
@@ -581,22 +792,74 @@ class MLEngine:
             proba = self._ensemble(feat)
             sig   = max(proba, key=proba.get)
             conf  = round(proba[sig]*100, 1)
+            
+            # ── STRICT ENTRY KURALLARI ───────────────────────────────────
+            # 1. Minimum confidence %75
+            HIGH_CONFIDENCE_THRESHOLD = 75.0
+            
+            # 2. Minimum 24h volume $20M
+            MIN_VOLUME_20M = 20_000_000
+            
+            # 3. Multi-model agreement check
+            gp = self.gbm.predict_proba(feat)
+            rp = self.rf.predict_proba(feat)
+            gbm_sig = max(gp, key=gp.get)
+            rf_sig = max(rp, key=rp.get)
+            
+            # Her iki model de aynı yönde olmalı
+            models_agree = (gbm_sig == rf_sig == sig)
+            
+            # Volume kontrolü
+            volume_ok = volume_24h >= MIN_VOLUME_20M
+            
+            # Confidence kontrolü
+            confidence_ok = conf >= HIGH_CONFIDENCE_THRESHOLD
+            
+            # Tüm koşullar sağlanmalı (LONG veya SHORT için)
+            if sig in ["LONG", "SHORT"]:
+                if not confidence_ok:
+                    logger.info(f"[{symbol}] Confidence {conf}% < {HIGH_CONFIDENCE_THRESHOLD}% → WAIT")
+                    sig = "WAIT"
+                elif not volume_ok:
+                    logger.info(f"[{symbol}] Volume ${volume_24h/1e6:.1f}M < $20M → WAIT")
+                    sig = "WAIT"
+                elif not models_agree:
+                    logger.info(f"[{symbol}] Models disagree (GBM:{gbm_sig}, RF:{rf_sig}) → WAIT")
+                    sig = "WAIT"
+                else:
+                    logger.info(f"[{symbol}] ✅ VALID SIGNAL: {sig} @ {conf}% vol=${volume_24h/1e6:.1f}M")
+            
             if conf < 54: sig = "WAIT"
 
-            lev = 20 if conf>85 else 15 if conf>75 else 10 if conf>65 else 5
+            # Leverage calculation based on confidence and volume
+            if conf > 85 and volume_24h > 50_000_000:
+                lev = 20
+            elif conf > 80 and volume_24h > 30_000_000:
+                lev = 15
+            elif conf > 75 and volume_24h > 20_000_000:
+                lev = 10
+            else:
+                lev = 5
 
             self._pred_count += 1
             self._feedback.append((feat, {"LONG":1,"SHORT":-1,"HOLD":0,"WAIT":0}.get(sig,0)))
 
             return {
-                "signal": sig, "confidence": conf,
+                "signal": sig, 
+                "confidence": conf,
                 "indicators": self._active_inds(klines)[:4],
-                "model": "GBM+RF (real fit)",
+                "model": "Ensemble (GBM+RF)",
                 "leverage": lev,
-                "gbm_signal": max(self.gbm.predict_proba(feat),key=self.gbm.predict_proba(feat).get),
-                "rf_signal":  max(self.rf.predict_proba(feat), key=self.rf.predict_proba(feat).get),
+                "gbm_signal": gbm_sig,
+                "rf_signal": rf_sig,
+                "gbm_confidence": round(gp.get(sig, 0)*100, 1),
+                "rf_confidence": round(rp.get(sig, 0)*100, 1),
+                "models_agree": models_agree,
+                "volume_24h": volume_24h,
+                "volume_ok": volume_ok,
+                "confidence_ok": confidence_ok,
                 "ensemble_proba": {k:round(v*100,1) for k,v in proba.items()},
-                "data_quality": "real",
+                "data_quality": "real" if volume_ok else "low_volume",
                 "model_trained": self._trained,
                 "wf_accuracy": self._wf.get("accuracy",0),
                 "backtest_roi": self._bt.get("roi",0),

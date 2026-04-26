@@ -42,8 +42,8 @@ async def send_telegram_message(text: str):
         "parse_mode": "HTML"
     }
     try:
-        async with httpx.AsyncClient() as client:
-            await client.post(url, json=payload, timeout=10)
+        client = await get_http_client()
+        await client.post(url, json=payload, timeout=10)
     except Exception as e:
         logger.error(f"Telegram error: {e}")
 
@@ -128,19 +128,19 @@ async def auto_train_on_startup():
     await asyncio.sleep(60)  # İlk scan için bekle
     logger.info("🤖 Otomatik model eğitimi başlıyor...")
     all_X, all_y = [], []
-    async with httpx.AsyncClient() as client:
-        for sym in FUTURES_PAIRS[:8]:  # İlk 8 pair yeterli
-            try:
-                klines = await fetch_klines(client, sym, interval="Min15", limit=200)
-                if klines is None: continue
-                from ml_engine import FeatureBuilder
-                X, y = FeatureBuilder.build_dataset(klines, lookahead=5, threshold=0.008)
-                if X is not None and len(X) >= 20:
-                    all_X.append(X); all_y.append(y)
-                    logger.info(f"  {sym}: {len(X)} sample eklendi")
-                await asyncio.sleep(1)
-            except Exception as e:
-                logger.warning(f"  {sym} eğitim verisi alınamadı: {e}")
+    client = await get_http_client()
+    for sym in FUTURES_PAIRS[:8]:  # İlk 8 pair yeterli
+        try:
+            klines = await fetch_klines(client, sym, interval="Min15", limit=200)
+            if klines is None: continue
+            from ml_engine import FeatureBuilder
+            X, y = FeatureBuilder.build_dataset(klines, lookahead=5, threshold=0.008)
+            if X is not None and len(X) >= 20:
+                all_X.append(X); all_y.append(y)
+                logger.info(f"  {sym}: {len(X)} sample eklendi")
+            await asyncio.sleep(1)
+        except Exception as e:
+            logger.warning(f"  {sym} eğitim verisi alınamadı: {e}")
     if all_X:
         import numpy as np
         Xall = np.vstack(all_X); yall = np.concatenate(all_y)
@@ -153,10 +153,9 @@ async def auto_train_on_startup():
         ml_engine._wf = walk_forward_validate(Xall, yall, n_splits=4)
         logger.info(f"✅ Model hazır — WF Accuracy: {ml_engine._wf.get('accuracy',0)}%, F1: {ml_engine._wf.get('f1',0)}")
         # Backtest BTC ile
-        async with httpx.AsyncClient() as client:
-            klines_bt = await fetch_klines(client, "BTC_USDT", interval="Min15", limit=300)
-            if klines_bt:
-                ml_engine.run_backtest(klines_bt)
+        klines_bt = await fetch_klines(client, "BTC_USDT", interval="Min15", limit=300)
+        if klines_bt:
+            ml_engine.run_backtest(klines_bt)
     else:
         logger.warning("Otomatik eğitim başarısız — MEXC API erişilemiyor olabilir")
 
@@ -179,21 +178,36 @@ app.add_middleware(
 )
 
 # ── Background tasks ───────────────────────────────────────────────────────────
+
+# Reusable HTTP client with connection pooling
+_http_client: Optional[httpx.AsyncClient] = None
+
+async def get_http_client() -> httpx.AsyncClient:
+    """Get or create a reusable HTTP client with connection pooling"""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(10.0, connect=5.0),
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+            follow_redirects=True
+        )
+    return _http_client
+
 async def scanner_loop():
     """Continuously scan MEXC futures pairs and run ML predictions"""
     logger.info("Scanner loop başladı")
     while True:
         try:
-            async with httpx.AsyncClient() as client:
-                # Scan in batches of 10
-                for i in range(0, len(FUTURES_PAIRS), 10):
-                    batch = FUTURES_PAIRS[i:i+10]
-                    tasks = [process_pair(client, sym) for sym in batch]
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    for sym, result in zip(batch, results):
-                        if isinstance(result, dict):
-                            scanner_cache[sym] = result
-                    await asyncio.sleep(0.5)
+            client = await get_http_client()
+            # Scan in batches of 10
+            for i in range(0, len(FUTURES_PAIRS), 10):
+                batch = FUTURES_PAIRS[i:i+10]
+                tasks = [process_pair(client, sym) for sym in batch]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for sym, result in zip(batch, results):
+                    if isinstance(result, dict):
+                        scanner_cache[sym] = result
+                await asyncio.sleep(0.5)
             logger.info(f"Tarama tamamlandı — {len(scanner_cache)} pair işlendi")
         except Exception as e:
             logger.error(f"Scanner loop error: {e}")
@@ -209,8 +223,8 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
     change24h = float(ticker.get("riseFallRate", 0)) * 100 if ticker else 0
     volume24h = float(ticker.get("volume24", 0)) if ticker else 0
 
-    # ML prediction
-    prediction = ml_engine.predict(symbol, klines, price)
+    # ML prediction — pass volume_24h for strict entry rules
+    prediction = ml_engine.predict(symbol, klines, price, volume_24h)
 
     # Logic for SL/TP based on side - Increased precision to 10 decimals for low-priced assets
     if prediction["signal"] == "SHORT":
@@ -235,6 +249,12 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
         "leverage": prediction["leverage"],
         "gbm_signal": prediction.get("gbm_signal", "WAIT"),
         "rf_signal": prediction.get("rf_signal", "WAIT"),
+        "gbm_confidence": prediction.get("gbm_confidence", 0),
+        "rf_confidence": prediction.get("rf_confidence", 0),
+        "models_agree": prediction.get("models_agree", False),
+        "volume_24h": prediction.get("volume_24h", 0),
+        "volume_ok": prediction.get("volume_ok", False),
+        "confidence_ok": prediction.get("confidence_ok", False),
         "model_trained": prediction.get("model_trained", False),
         "wf_accuracy": prediction.get("wf_accuracy", 0),
         "backtest_roi": prediction.get("backtest_roi", 0),
@@ -255,8 +275,22 @@ async def process_pair(client: httpx.AsyncClient, symbol: str) -> dict:
 
     st = agent_states[symbol]
 
-    # Check for new entry - Strict real data only + Cooldown + Distance check
+    # Check for new entry - Strict real data only + Cooldown + Distance check + ML Validation
     can_enter = st["active_pos"] is None and prediction["signal"] in ["LONG", "SHORT"] and price > 0 and prediction["data_quality"] == "real"
+
+    # STRICT ML VALIDATION: %75+ confidence AND $20M+ volume AND models agree
+    if can_enter:
+        if not prediction.get("confidence_ok", False):
+            can_enter = False
+            logger.debug(f"ML Validation failed for {symbol}: Confidence {prediction['confidence']}% < 75%")
+        elif not prediction.get("volume_ok", False):
+            can_enter = False
+            logger.debug(f"ML Validation failed for {symbol}: Volume ${prediction.get('volume_24h', 0)/1e6:.1f}M < $20M")
+        elif not prediction.get("models_agree", False):
+            can_enter = False
+            logger.debug(f"ML Validation failed for {symbol}: Models disagree (GBM:{prediction.get('gbm_signal')}, RF:{prediction.get('rf_signal')})")
+        else:
+            logger.info(f"✅ ML Validation passed for {symbol}: {prediction['signal']} @ {prediction['confidence']}% vol=${prediction.get('volume_24h', 0)/1e6:.1f}M")
 
     # Cooldown check (5 mins)
     if can_enter and st["last_exit_time"]:
@@ -486,8 +520,8 @@ async def trigger_training(symbol: str):
     sym = symbol.upper().replace("-","_")
     if sym not in scanner_cache:
         return {"success":False,"error":"Pair bulunamadı — önce scan çalıştır"}
-    async with httpx.AsyncClient() as client:
-        klines = await fetch_klines(client, sym, interval="Min15", limit=200)
+    client = await get_http_client()
+    klines = await fetch_klines(client, sym, interval="Min15", limit=200)
     if klines is None:
         return {"success":False,"error":"MEXC kline verisi alınamadı"}
     result = ml_engine.train(klines, sym)
@@ -498,15 +532,15 @@ async def train_all():
     """İlk 5 pairi kullanarak global modeli eğit"""
     trained = []
     all_X, all_y = [], []
-    async with httpx.AsyncClient() as client:
-        for sym in FUTURES_PAIRS[:5]:
-            klines = await fetch_klines(client, sym, interval="Min15", limit=200)
-            if klines is None: continue
-            from ml_engine import FeatureBuilder
-            X, y = FeatureBuilder.build_dataset(klines, lookahead=5, threshold=0.008)
-            if X is not None:
-                all_X.append(X); all_y.append(y)
-                trained.append(sym)
+    client = await get_http_client()
+    for sym in FUTURES_PAIRS[:5]:
+        klines = await fetch_klines(client, sym, interval="Min15", limit=200)
+        if klines is None: continue
+        from ml_engine import FeatureBuilder
+        X, y = FeatureBuilder.build_dataset(klines, lookahead=5, threshold=0.008)
+        if X is not None:
+            all_X.append(X); all_y.append(y)
+            trained.append(sym)
     if all_X:
         import numpy as np
         Xall = np.vstack(all_X); yall = np.concatenate(all_y)
@@ -521,8 +555,8 @@ async def train_all():
 async def run_backtest(symbol: str):
     """Seçili pair üzerinde backtest çalıştır"""
     sym = symbol.upper().replace("-","_")
-    async with httpx.AsyncClient() as client:
-        klines = await fetch_klines(client, sym, interval="Min15", limit=300)
+    client = await get_http_client()
+    klines = await fetch_klines(client, sym, interval="Min15", limit=300)
     if klines is None:
         return {"success":False,"error":"Veri alınamadı"}
     result = ml_engine.run_backtest(klines)
