@@ -2,306 +2,221 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ML Detayları — MEXC Trader v2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MEXC ML Trader — Makine Öğrenimi Detayları</title>
 <style>
-  :root{--bg:#0d1117;--card:#161b22;--border:#21262d;--text:#e6edf3;--sub:#8b949e;
-    --green:#3fb950;--red:#f85149;--blue:#58a6ff;--amber:#d29922;--purple:#bc8cff;
-    --teal:#39d353;--orange:#f0883e}
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-    font-size:13px;padding:12px;min-height:100vh}
-  a{color:var(--blue);text-decoration:none}
-  .header{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
-  .header h1{font-size:17px;font-weight:600}
-  .badge{padding:3px 8px;border-radius:12px;font-size:10px;font-weight:600;background:rgba(63,185,80,.15);color:var(--green)}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
-  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px}
-  @media(max-width:600px){.grid,.grid3{grid-template-columns:1fr}}
-  .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px}
-  .card-title{font-size:11px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.5px;
-    margin-bottom:10px;display:flex;align-items:center;gap:6px}
-  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;flex-shrink:0}
-  .dot.amber{background:var(--amber)} .dot.red{background:var(--red)} .dot.blue{background:var(--blue)}
-  .row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)}
-  .row:last-child{border-bottom:none}
-  .lbl{color:var(--sub)} .val{font-weight:600;text-align:right}
-  .up{color:var(--green)} .down{color:var(--red)} .amber{color:var(--amber)} .blue{color:var(--blue)}
-  .purple{color:var(--purple)} .warn{color:var(--amber);font-weight:700}
-  .feat-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-  @media(max-width:480px){.feat-grid{grid-template-columns:1fr}}
-  .feat-card{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:6px;padding:8px 10px}
-  .feat-name{font-size:12px;font-weight:600;margin-bottom:2px}
-  .feat-type{font-size:10px;color:var(--sub);margin-bottom:4px}
-  .feat-bar-bg{height:4px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
-  .feat-bar{height:4px;border-radius:2px;background:var(--blue);transition:width .5s}
-  .feat-imp{font-size:10px;color:var(--sub);text-align:right;margin-top:2px}
-  .new-tag{font-size:8px;background:rgba(188,140,255,.2);color:var(--purple);padding:1px 4px;border-radius:3px;margin-left:4px}
-  tabel{width:100%;border-collapse:collapse}
-  table{width:100%;border-collapse:collapse}
-  th{color:var(--sub);font-weight:500;font-size:11px;padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)}
-  td{padding:5px 8px;border-bottom:1px solid rgba(33,38,45,.6);font-size:12px}
-  tr:last-child td{border-bottom:none}
-  .prog-container{background:rgba(255,255,255,.06);border-radius:4px;height:6px;overflow:hidden;margin-top:6px}
-  .prog-bar{height:6px;border-radius:4px;background:linear-gradient(90deg,var(--blue),var(--teal));transition:width .8s}
-  .stat-big{font-size:22px;font-weight:700;line-height:1}
-  .trigger-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)}
-  .trigger-row:last-child{border-bottom:none}
-  .trigger-icon{font-size:14px;width:20px;text-align:center}
-  .trigger-label{flex:1;color:var(--sub);font-size:12px}
-  .trigger-count{font-weight:600;font-size:12px}
-  .back-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:rgba(88,166,255,.1);
-    border:1px solid rgba(88,166,255,.3);border-radius:6px;color:var(--blue);font-size:12px}
-  .status-pill{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}
-  .pill-green{background:rgba(63,185,80,.15);color:var(--green)}
-  .pill-amber{background:rgba(210,153,34,.15);color:var(--amber)}
-  .pill-red{background:rgba(248,81,73,.15);color:var(--red)}
-  .drift-meter{height:8px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden;margin-top:4px}
-  .drift-fill{height:8px;border-radius:4px;transition:width .8s}
+:root{
+  --bg:#0a0e1a;--bg2:#0f1424;--bg3:#141929;
+  --surface:#1a2035;--surface2:#202840;
+  --border:rgba(99,179,237,0.12);--border2:rgba(99,179,237,0.25);
+  --accent:#00d4ff;--accent2:#7c3aed;
+  --green:#10b981;--red:#ef4444;--amber:#f59e0b;
+  --text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
+  --font-std: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font-std);font-size:14px;background:var(--bg);color:var(--text);padding:20px}
+.main{max-width:1200px;margin:0 auto}
+
+/* HEADER */
+.header{display:flex;align-items:center;justify-content:space-between;padding:0 0 20px;border-bottom:1px solid var(--border);margin-bottom:24px}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-icon{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff}
+.logo-title{font-size:22px;font-weight:800;color:var(--accent)}
+.btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border2);background:var(--surface);color:var(--accent);text-decoration:none;font-size:13px;transition:all 0.2s}
+.btn:hover{background:var(--surface2);border-color:var(--accent)}
+
+/* PANELS */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:20px;margin-bottom:20px}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.panel-header{padding:14px 16px;border-bottom:1px solid var(--border);background:var(--bg3);font-weight:700;display:flex;align-items:center;gap:8px}
+.panel-body{padding:16px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+
+/* DATA FLOW */
+.flow{display:flex;flex-direction:column;gap:12px;position:relative}
+.flow-step{background:var(--bg2);border:1px solid var(--border);padding:12px;border-radius:8px;display:flex;align-items:center;gap:12px;z-index:1}
+.flow-icon{width:32px;height:32px;background:var(--surface2);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:bold}
+.flow-arrow{text-align:center;color:var(--text3);font-size:18px;line-height:1}
+
+/* FEATURES */
+.feat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+.feat-tag{background:rgba(0,212,255,0.08);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:11px;color:var(--text2);text-align:center}
+
+/* STATS */
+.stat-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)}
+.stat-row:last-child{border-bottom:none}
+.stat-label{color:var(--text3)}
+.stat-val{font-weight:600;color:var(--accent)}
+
+/* TABLE */
+.tbl{width:100%;border-collapse:collapse;margin-top:10px}
+.tbl th{text-align:left;color:var(--text3);font-size:11px;padding:8px;border-bottom:1px solid var(--border)}
+.tbl td{padding:8px;border-bottom:1px solid rgba(255,255,255,0.025);font-size:12px}
+
+.up{color:var(--green)} .down{color:var(--red)}
 </style>
 </head>
 <body>
-
-<div class="header">
-  <a href="/" class="back-btn">← Ana Sayfa</a>
-  <h1>ML Detayları</h1>
-  <span class="badge" id="modelBadge">Yükleniyor...</span>
-  <span class="badge" style="background:rgba(188,140,255,.15);color:var(--purple)" id="v2badge">v2 · 36 Feature</span>
-</div>
-
-<!-- SATIR 1: Doğrulama + Backtest + Drift -->
-<div class="grid3">
-
-  <!-- Doğrulama & Performans -->
-  <div class="card">
-    <div class="card-title"><span class="dot"></span>Doğrulama & Performans</div>
-    <div class="row"><span class="lbl">Model Durumu</span>
-      <span id="trainedBadge" class="status-pill pill-amber">Bekleniyor</span></div>
-    <div class="row"><span class="lbl">WF Accuracy</span><span class="val up" id="wfAcc">—</span></div>
-    <div class="row"><span class="lbl">WF F1 Score</span><span class="val" id="wfF1">—</span></div>
-    <div class="row"><span class="lbl">Toplam Tahmin</span><span class="val blue" id="predCount">—</span></div>
-    <div class="row"><span class="lbl">Feedback Buffer</span><span class="val" id="feedbackBuf">—</span></div>
-    <div class="row"><span class="lbl">Toplam Trade FB</span><span class="val purple" id="feedbackTotal">—</span></div>
-    <div class="row"><span class="lbl">Doğrulama</span><span class="val blue">Walk-forward (4-fold)</span></div>
-    <div class="row"><span class="lbl">Min Sample</span><span class="val">80</span></div>
-  </div>
-
-  <!-- Backtest -->
-  <div class="card">
-    <div class="card-title"><span class="dot blue"></span>Backtest Sonuçları</div>
-    <div class="row"><span class="lbl">ROI</span><span class="val up" id="btROI">—</span></div>
-    <div class="row"><span class="lbl">Win Rate</span><span class="val" id="btWR">—</span></div>
-    <div class="row"><span class="lbl">Sharpe Ratio</span><span class="val blue" id="btSharpe">—</span></div>
-    <div class="row"><span class="lbl">Max Drawdown</span><span class="val down" id="btDD">—</span></div>
-    <div class="row"><span class="lbl">Trade Sayısı</span><span class="val" id="btTrades">—</span></div>
-    <div class="row"><span class="lbl">Son Eğitim</span><span class="val" id="lastRetrain" style="font-size:10px">—</span></div>
-    <div class="row"><span class="lbl">Sonraki Retrain</span><span class="val amber" id="nextRetrain">—</span></div>
-    <div class="row"><span class="lbl">Eğitim Sürüyor</span><span class="val" id="trainingProg">—</span></div>
-  </div>
-
-  <!-- Drift Dedektörü -->
-  <div class="card">
-    <div class="card-title"><span class="dot amber"></span>Drift Dedektörü</div>
-    <div class="row"><span class="lbl">Drift Durumu</span><span id="driftStatus" class="status-pill pill-green">Normal</span></div>
-    <div class="row"><span class="lbl">Baseline Acc</span><span class="val blue" id="driftBaseline">—</span></div>
-    <div class="row"><span class="lbl">Son 50 Acc</span><span class="val" id="driftRecent">—</span></div>
-    <div class="row"><span class="lbl">Pencere Doluluk</span><span class="val" id="driftWindow">—</span></div>
-    <div class="row"><span class="lbl">Drift Sayısı</span><span class="val down" id="driftCount">—</span></div>
-    <div style="margin-top:10px">
-      <div style="font-size:10px;color:var(--sub);margin-bottom:4px">Son 50 tahmin accuracy</div>
-      <div class="drift-meter"><div class="drift-fill" id="driftBar" style="width:0%;background:var(--green)"></div></div>
+<div class="main">
+  <div class="header">
+    <div class="logo">
+      <div class="logo-icon">ML</div>
+      <div class="logo-title">ML Detayları & Veri Akışı</div>
     </div>
-    <div style="margin-top:12px">
-      <div class="card-title" style="margin-bottom:8px"><span class="dot blue"></span>Retrain Tetikleyiciler</div>
-      <div class="trigger-row"><span class="trigger-icon">⏰</span>
-        <span class="trigger-label">Zamansal (6sa)</span><span class="trigger-count blue" id="trgTemporal">0</span></div>
-      <div class="trigger-row"><span class="trigger-icon">📊</span>
-        <span class="trigger-label">Drift</span><span class="trigger-count amber" id="trgDrift">0</span></div>
-      <div class="trigger-row"><span class="trigger-icon">🔄</span>
-        <span class="trigger-label">Feedback (200 trade)</span><span class="trigger-count purple" id="trgFeedback">0</span></div>
-      <div class="trigger-row"><span class="trigger-icon">🖐</span>
-        <span class="trigger-label">Manuel</span><span class="trigger-count" id="trgManual">0</span></div>
+    <a href="/" class="btn">← Dashboard'a Dön</a>
+  </div>
+
+  <div class="grid">
+    <!-- ARCHITECTURE -->
+    <div class="panel">
+      <div class="panel-header"><div class="dot"></div>Model Ensemble Mimarisi</div>
+      <div class="panel-body">
+        <p style="color:var(--text2);margin-bottom:16px;font-size:13px">Sistem, iki ana modelin ağırlıklı ortalamasını (Ensemble) kullanır. Bu sayede hem varyans hem de sapma hataları minimize edilir.</p>
+        <div class="stat-row"><span class="stat-label">Gradient Boosting (GBM)</span><span class="stat-val" id="gbmBackend">60% Ağırlık</span></div>
+        <div class="stat-row"><span class="stat-label">Random Forest (RF)</span><span class="stat-val" id="rfBackend">40% Ağırlık</span></div>
+        <div class="stat-row"><span class="stat-label">GBM Estimators</span><span class="stat-val" id="gbmEst">300</span></div>
+        <div class="stat-row"><span class="stat-label">RF Estimators</span><span class="stat-val" id="rfEst">100</span></div>
+        <div class="stat-row"><span class="stat-label">Karar Eşiği</span><span class="stat-val">> 54% Güven</span></div>
+        <div class="stat-row"><span class="stat-label">Tahmin Aralığı</span><span class="stat-val">5 Bar (Lookahead)</span></div>
+        <div class="stat-row"><span class="stat-label">Hedef Değişim</span><span class="stat-val">± 0.8%</span></div>
+      </div>
+    </div>
+
+    <!-- DATA FLOW -->
+    <div class="panel">
+      <div class="panel-header"><div class="dot" style="background:var(--accent2)"></div>Veri Akış Hattı (Data Pipeline)</div>
+      <div class="panel-body">
+        <div class="flow">
+          <div class="flow-step">
+            <div class="flow-icon">1</div>
+            <div><strong>MEXC API (REST/WS)</strong><div style="font-size:11px;color:var(--text3)">OHLCV Kline Verisi (15dk)</div></div>
+          </div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step">
+            <div class="flow-icon">2</div>
+            <div><strong>Indicator Engine</strong><div style="font-size:11px;color:var(--text3)">RSI, MACD, BB, EMA, MFI...</div></div>
+          </div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step">
+            <div class="flow-icon">3</div>
+            <div><strong>Feature Builder</strong><div style="font-size:11px;color:var(--text3)">28 Boyutlu Vektör Üretimi</div></div>
+          </div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step">
+            <div class="flow-icon">4</div>
+            <div><strong>ML Ensemble</strong><div style="font-size:11px;color:var(--text3)">GBM + RF Paralel Tahmin</div></div>
+          </div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step">
+            <div class="flow-icon">5</div>
+            <div><strong>Signal Generator</strong><div style="font-size:11px;color:var(--text3)">LONG / SHORT / HOLD / WAIT</div></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
-</div>
 
-<!-- SATIR 2: Model Versiyonları + Son Eğitim -->
-<div class="grid">
-  <div class="card">
-    <div class="card-title"><span class="dot purple"></span>Model Versiyonları (son 3)</div>
-    <table><thead><tr><th>Versiyon</th><th>WF Acc</th><th>Sample</th><th>Tarih</th></tr></thead>
-    <tbody id="versionLog"></tbody></table>
+  <div class="grid">
+    <!-- FEATURES -->
+    <div class="panel" style="grid-column: span 2">
+      <div class="panel-header">
+        <div class="dot" style="background:var(--amber)"></div>Feature Engineering (28 Özellik)
+        <span id="featStatus" style="font-size:10px;color:var(--green);margin-left:auto;background:rgba(16,185,129,0.1);padding:2px 6px;border-radius:4px">Durum: Üretim</span>
+      </div>
+      <div class="panel-body">
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text3)">Aşağıdaki özellikler her 15 dakikada bir hesaplanarak modele girdi (input) olarak verilir.</div>
+        <div class="feat-grid" id="featGrid"></div>
+      </div>
+    </div>
   </div>
 
-  <div class="card">
-    <div class="card-title"><span class="dot red"></span>Son Eğitim Kayıtları</div>
-    <table><thead><tr><th>Zaman</th><th>Sembol</th><th>Sample</th><th>WF%</th><th>FB?</th></tr></thead>
-    <tbody id="trainLog"></tbody></table>
-  </div>
-</div>
+  <div class="grid">
+    <!-- PERFORMANCE -->
+    <div class="panel">
+      <div class="panel-header"><div class="dot" style="background:var(--green)"></div>Doğrulama & Performans</div>
+      <div class="panel-body">
+        <div class="stat-row"><span class="stat-label">Model Durumu</span><span class="stat-val" id="isTrained">—</span></div>
+        <div class="stat-row"><span class="stat-label">WF Accuracy</span><span class="stat-val" id="wfAcc">—</span></div>
+        <div class="stat-row"><span class="stat-label">WF F1 Score</span><span class="stat-val" id="wfF1">—</span></div>
+        <div class="stat-row"><span class="stat-label">Toplam Tahmin</span><span class="stat-val" id="predCount">—</span></div>
+        <div class="stat-row"><span class="stat-label">Geri Bildirim Havuzu</span><span class="stat-val" id="fbBuffer">—</span></div>
+        <div class="stat-row"><span class="stat-label">Doğrulama Metodu</span><span class="stat-val" style="font-size:11px">Walk-forward (4-fold)</span></div>
+      </div>
+    </div>
 
-<!-- SATIR 3: Feature Importance -->
-<div class="card" style="margin-bottom:10px">
-  <div class="card-title"><span class="dot"></span>Feature Importance
-    <span style="margin-left:auto;font-size:10px;color:var(--sub)">36 özellik · LightGBM gerçek importance</span>
+    <!-- LOGS -->
+    <div class="panel">
+      <div class="panel-header"><div class="dot" style="background:var(--red)"></div>Son Eğitim Kayıtları</div>
+      <div class="panel-body">
+        <table class="tbl">
+          <thead><tr><th>Zaman</th><th>Sembol</th><th>Örnek</th><th>Acc%</th></tr></thead>
+          <tbody id="trainLog"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
-  <div class="feat-grid" id="featGrid"></div>
-</div>
-
-<!-- SATIR 4: Model Detayları -->
-<div class="card" style="margin-bottom:10px">
-  <div class="card-title"><span class="dot blue"></span>Model Konfigürasyonu</div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="modelConf"></div>
 </div>
 
 <script>
-const API = window.location.origin;
+async function fetchData() {
+  try {
+    const r = await fetch('/api/model');
+    const d = await r.json();
+    if(d.success && d.data) {
+      const m = d.data;
 
-function fmtDate(iso){
-  if(!iso) return '—';
-  const d=new Date(iso);
-  return d.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-}
+      // Features
+      if(m.features && Array.isArray(m.features)) {
+        document.getElementById('featGrid').innerHTML = m.features.map(f => {
+          const name = typeof f === 'string' ? f : f.name;
+          const type = f.type ? `<div style="font-size:8px;color:var(--accent2)">${f.type}</div>` : '';
+          const imp = f.importance ? `<div style="font-size:8px;color:var(--amber)">Imp: ${(f.importance*100).toFixed(1)}%</div>` : '';
+          return `<div class="feat-tag">${name}${type}${imp}</div>`;
+        }).join('');
+        if(m.feature_engineering_status) document.getElementById('featStatus').textContent = 'Durum: ' + m.feature_engineering_status;
+      }
 
-function fmtDateFull(iso){
-  if(!iso) return '—';
-  const d=new Date(iso);
-  return d.toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'})+' '+
-         d.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'});
-}
+      // Stats
+      document.getElementById('isTrained').textContent = m.is_trained ? 'EĞİTİLDİ ✓' : 'BEKLENİYOR';
+      document.getElementById('isTrained').className = 'stat-val ' + (m.is_trained ? 'up' : 'down');
+      document.getElementById('wfAcc').textContent = (m.wf_result?.accuracy || 0) + '%';
+      document.getElementById('wfF1').textContent = m.wf_result?.f1 || '0';
+      document.getElementById('predCount').textContent = (m.predictions_made || 0).toLocaleString();
+      document.getElementById('fbBuffer').textContent = m.feedback_buffer + ' sample';
 
-const NEW_FEATS = new Set(['VWAP_dist','Mom_slope','RSI_div','Market_regime',
-                            'Vol_momentum','Lower_wick','EMA_cross_spd','ATR_pct_rank']);
+      // Models
+      if(m.models && Array.isArray(m.models)) {
+        const gbm = m.models.find(x => x.name === 'GradientBoosting');
+        const rf = m.models.find(x => x.name === 'RandomForest');
+        if(gbm) {
+          document.getElementById('gbmBackend').textContent = '60% Ağırlık (' + gbm.backend + ')';
+          document.getElementById('gbmEst').textContent = gbm.estimators;
+        }
+        if(rf) {
+          document.getElementById('rfBackend').textContent = '40% Ağırlık (' + rf.backend + ')';
+          document.getElementById('rfEst').textContent = rf.estimators;
+        }
+      }
 
-const TYPE_COLORS = {
-  'Momentum':'#58a6ff','Trend':'#3fb950','Volatility':'#d29922',
-  'Volume':'#bc8cff','Volume/Momentum':'#39d353','Return':'#f0883e',
-  'Range':'#79c0ff','Candle':'#ffa657','Market':'#ff7b72'
-};
-
-async function fetchData(){
-  try{
-    const r=await fetch(API+'/api/model');
-    const d=await r.json();
-    if(!d.success) return;
-    const m=d.data;
-
-    // Badge
-    document.getElementById('modelBadge').textContent=m.is_trained ? 'EĞİTİLDİ ✓' : 'EĞİTİLMEDİ';
-    const tb=document.getElementById('trainedBadge');
-    tb.textContent=m.is_trained ? 'EĞİTİLDİ ✓' : 'Eğitimsiz';
-    tb.className='status-pill '+(m.is_trained ? 'pill-green' : 'pill-amber');
-
-    // Doğrulama
-    const wf=m.wf_result||{};
-    document.getElementById('wfAcc').textContent=(wf.accuracy||0)+'%';
-    document.getElementById('wfF1').textContent=(wf.f1||0).toFixed(3);
-    document.getElementById('predCount').textContent=(m.predictions_made||0).toLocaleString();
-    document.getElementById('feedbackBuf').textContent=(m.feedback_buffer||0)+' sample';
-    document.getElementById('feedbackTotal').textContent=(m.feedback_total_added||0)+' toplam';
-
-    // Backtest
-    const bt=m.backtest||{};
-    document.getElementById('btROI').textContent=(bt.roi||0)+'%';
-    document.getElementById('btWR').textContent=(bt.win_rate||0)+'%';
-    document.getElementById('btSharpe').textContent=(bt.sharpe||0).toFixed(3);
-    document.getElementById('btDD').textContent=(bt.max_drawdown||0)+'%';
-    document.getElementById('btTrades').textContent=bt.n_trades||0;
-    document.getElementById('lastRetrain').textContent=fmtDateFull(m.last_retrain);
-    document.getElementById('nextRetrain').textContent=
-      m.next_retrain_in_hours!=null ? m.next_retrain_in_hours+'sa sonra' : '—';
-    document.getElementById('trainingProg').textContent=
-      m.training_in_progress ? '🔄 Eğitim sürüyor...' : '✓ Hazır';
-
-    // Drift
-    const dr=m.drift_status||{};
-    const driftEl=document.getElementById('driftStatus');
-    const isDrift=dr.is_drifting;
-    driftEl.textContent=isDrift ? '⚠️ Drift Var' : '✓ Normal';
-    driftEl.className='status-pill '+(isDrift ? 'pill-red' : 'pill-green');
-    document.getElementById('driftBaseline').textContent=(dr.baseline_acc||0)+'%';
-    document.getElementById('driftRecent').textContent=(dr.recent_acc||0)+'%';
-    document.getElementById('driftWindow').textContent=(dr.window_size||0)+'/50';
-    document.getElementById('driftCount').textContent=(dr.drift_count||0)+'x';
-
-    const driftPct=Math.min(100,dr.recent_acc||0);
-    const driftBar=document.getElementById('driftBar');
-    driftBar.style.width=driftPct+'%';
-    driftBar.style.background=isDrift ? 'var(--red)' : driftPct>55 ? 'var(--green)' : 'var(--amber)';
-
-    // Tetikleyiciler
-    const trg=m.retrain_triggers||{};
-    document.getElementById('trgTemporal').textContent=trg.temporal||0;
-    document.getElementById('trgDrift').textContent=trg.drift||0;
-    document.getElementById('trgFeedback').textContent=trg.feedback||0;
-    document.getElementById('trgManual').textContent=trg.manual||0;
-
-    // Model versiyonları
-    const versions=m.model_versions||[];
-    document.getElementById('versionLog').innerHTML=versions.length
-      ? versions.map((v,i)=>`<tr>
-          <td><span style="color:var(--purple)">v${versions.length-i}</span></td>
-          <td class="${v.wf_acc>55?'up':'amber'}">${v.wf_acc}%</td>
-          <td>${(v.n_samples||0).toLocaleString()}</td>
-          <td style="font-size:10px;color:var(--sub)">${fmtDateFull(v.trained_at)}</td>
-        </tr>`).join('')
-      : '<tr><td colspan="4" style="color:var(--sub);text-align:center">Henüz versiyon yok</td></tr>';
-
-    // Eğitim log
-    const logs=m.train_log||[];
-    document.getElementById('trainLog').innerHTML=logs.length
-      ? [...logs].reverse().map(l=>{
-          const acc=l.test_accuracy??l.wf_accuracy??0;
-          const suspect=acc>=99&&(l.n_samples||0)<200;
-          const cls=suspect?'warn':(acc>55?'up':'down');
-          const label=suspect?acc+'% ⚠️':acc+'%';
-          const fbMark=l.feedback_used?'<span style="color:var(--purple)">✓</span>':'—';
+      // Logs
+      if(m.train_log) {
+        document.getElementById('trainLog').innerHTML = [...m.train_log].reverse().map(l => {
+          const time = l.trained_at.split('T')[1].split('.')[0];
           return `<tr>
-            <td style="color:var(--sub)">${fmtDate(l.trained_at)}</td>
-            <td>${l.symbol||'?'}</td>
-            <td>${(l.n_samples||0).toLocaleString()}</td>
-            <td class="${cls}">${label}</td>
-            <td style="text-align:center">${fbMark}</td>
+            <td>${time}</td>
+            <td>${l.symbol}</td>
+            <td>${l.n_samples}</td>
+            <td class="${l.wf_accuracy > 50 ? 'up' : 'down'}">${l.wf_accuracy}%</td>
           </tr>`;
-        }).join('')
-      : '<tr><td colspan="5" style="color:var(--sub);text-align:center">Henüz eğitim yok</td></tr>';
-
-    // Feature importance
-    const feats=m.features||[];
-    if(feats.length){
-      const maxImp=Math.max(...feats.map(f=>f.importance||0));
-      document.getElementById('featGrid').innerHTML=feats.map(f=>{
-        const isNew=NEW_FEATS.has(f.name);
-        const color=TYPE_COLORS[f.type]||'var(--blue)';
-        const pct=maxImp>0?Math.round((f.importance/maxImp)*100):0;
-        return `<div class="feat-card">
-          <div class="feat-name">${f.name}${isNew?'<span class="new-tag">YENİ</span>':''}</div>
-          <div class="feat-type" style="color:${color}">${f.type}</div>
-          <div class="feat-bar-bg"><div class="feat-bar" style="width:${pct}%;background:${color}"></div></div>
-          <div class="feat-imp">${(f.importance||0).toFixed(1)}%</div>
-        </div>`;
-      }).join('');
+        }).join('');
+      }
     }
-
-    // Model konfigürasyonu
-    const models=m.models||[];
-    document.getElementById('modelConf').innerHTML=models.map(mod=>`
-      <div style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:6px;padding:10px">
-        <div style="font-weight:600;margin-bottom:6px">${mod.name}</div>
-        <div class="row"><span class="lbl">Backend</span><span class="val blue">${mod.backend}</span></div>
-        <div class="row"><span class="lbl">Ağırlık</span><span class="val">${Math.round(mod.weight*100)}%</span></div>
-        <div class="row"><span class="lbl">Estimators</span><span class="val">${mod.estimators}</span></div>
-        <div style="margin-top:6px">
-          <div style="font-size:10px;color:var(--sub);margin-bottom:3px">Ensemble ağırlığı</div>
-          <div class="prog-container"><div class="prog-bar" style="width:${mod.weight*100}%"></div></div>
-        </div>
-      </div>`).join('');
-
-  }catch(e){console.error('fetchData error:',e)}
+  } catch(e) { console.error(e); }
 }
 
 fetchData();
-setInterval(fetchData, 15000);
+setInterval(fetchData, 30000);
 </script>
 </body>
 </html>
