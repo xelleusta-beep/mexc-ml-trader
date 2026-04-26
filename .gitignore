@@ -1,0 +1,72 @@
+--- .gitignore (原始)
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+env/
+venv/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System
+.DS_Store
+.env
+*.log
+
+# Cache
+.pytest_cache/
+.mypy_cache/
+
++++ .gitignore (修改后)
+```
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Dependencies
+.venv/
+venv/
+env/
+pip-log.txt
+pip-selfcheck.json
+
+# Build and distribution artifacts
+build/
+dist/
+*.egg
+*.egg-info/
+*.so
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
+*.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# Coverage
+.coverage
+htmlcov/
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
+```
