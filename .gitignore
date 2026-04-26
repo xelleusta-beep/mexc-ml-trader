@@ -1,0 +1,39 @@
+--- .gitignore (原始)
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+env/
+venv/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System
+.DS_Store
+.env
+*.log
+
+# Cache
+.pytest_cache/
+.mypy_cache/
+
++++ .gitignore (修改后)
+```
+__pycache__/
+*.pyc
+.env
+.env.local
+*.env.*
+.vscode/
+.idea/
+*.log
+*.tmp
+*.swp
+```
