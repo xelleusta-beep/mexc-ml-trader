@@ -1,45 +1,31 @@
 ```
-# Python
-__pycache__/
+# Compiled Python files
 *.pyc
-*.pyo
-*.pyd
+__pycache__/
 
 # Dependencies
-.venv/
-venv/
-env/
-pip-log.txt
-pip-selfcheck.json
+backend/venv/
+backend/.venv/
+frontend/node_modules/
 
-# Build and distribution artifacts
-build/
-dist/
-*.egg
-*.egg-info/
-*.so
+# Archives
+*.tar.gz
+*.zip
 
-# Logs
-*.log
-
-# Environment variables
+# Environment files
 .env
 .env.local
 *.env.*
 
-# IDE
+# Logs
+*.log
+
+# IDE files
 .vscode/
 .idea/
-*.swp
-*.swo
-*.tmp
 
-# Coverage
-.coverage
-htmlcov/
-coverage/
-
-# OS
-.DS_Store
-Thumbs.db
+# Build artifacts
+dist/
+build/
+target/
 ```

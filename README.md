@@ -1,113 +1,159 @@
-# MEXC ML Trader — Gerçek Makine Öğrenimi Trading Sistemi
+# MEXC ML Trading System - Kurulum Rehberi
 
-## Mimari
-
-```
-MEXC Futures API  →  Feature Engineering  →  ML Model  →  Sinyal  →  Dashboard
-  (Gerçek OHLCV)      (28 özellik)          (GBM+RF)    (LONG/SHORT)  (WebSocket)
-```
-
-## Gerçek ML Sistemi — Ne Yapıyor?
-
-### ✅ 1. Gerçek Eğitim (model.fit)
-- MEXC API'den 15 dakikalık OHLCV verisi çeker (200 bar)
-- Her bar için **28 teknik özellik** hesaplar
-- **Label üretir:** 5 bar sonra fiyat +0.8% → LONG, -0.8% → SHORT, ortada → HOLD
-- `model.fit(X_train, y_train)` ile gerçekten öğrenir
-
-### ✅ 2. Ensemble Model
-- **LightGBM** (öncelikli) → sklearn GBM → NumPy AdaBoost (fallback zinciri)
-- **Random Forest** (sklearn → NumPy fallback)
-- Ensemble: GBM %60 + RF %40 ağırlıklı ortalama
-
-### ✅ 3. Walk-Forward Validation
-- Zaman sıralı 4-fold validation (gelecek sızmaz)
-- Her fold: train → test, örtüşmüyor
-- Accuracy ve F1 skoru rapor eder
-
-### ✅ 4. Backtest
-- Modelin sinyalleriyle geçmiş performans ölçülür
-- Metrikler: ROI, Win Rate, Max Drawdown, Sharpe Ratio
-- %2.5 Stop-Loss, %4.5 Take-Profit, %0.04 fee dahil
-
-### ✅ 5. Feedback Loop
-- Canlı tahminler buffer'a eklenir
-- 100 sample biriktikçe model yeniden eğitilir (5dk cooldown)
-- Piyasa değişince model adapte olur
-
-### ✅ 6. 28 Gerçek Feature
-RSI-14, StochRSI, MFI, Williams%R, MACD(12,26,9), EMA(9,21,50),
-Bollinger Bands, ATR, OBV Trend, Volume Ratio,
-Lag Returns (t-1,t-2,t-3), Rolling Returns (5,10,20 bar),
-Rolling Std, HL Position, Momentum Acceleration, Candle Body/Wick
-
-## Proje Yapısı
+## 📁 Proje Yapısı
 
 ```
-mexc-real/
-├── backend/
-│   ├── main.py          # FastAPI + WebSocket + MEXC API + Auto-train
-│   ├── ml_engine.py     # Gerçek ML (LightGBM, RF, Backtest, WalkForward)
-│   └── requirements.txt
-├── frontend/
-│   └── index.html       # Canlı Dashboard (WebSocket bağlantılı)
-├── Procfile             # Render process tanımı
-├── render.yaml          # Render konfigürasyonu
-└── runtime.txt          # Python 3.11
+/workspace
+├── backend/                 # Python FastAPI Backend
+│   ├── main.py             # Ana uygulama
+│   ├── config.py           # Yapılandırma
+│   ├── requirements.txt    # Python bağımlılıkları
+│   ├── .env.example        # Örnek çevre değişkenleri
+│   ├── services/
+│   │   └── mexc_client.py  # MEXC API istemcisi
+│   ├── models/
+│   │   └── ml_engine.py    # Makine öğrenimi motoru
+│   ├── strategies/
+│   │   └── signal_manager.py  # Sinyal yöneticisi
+│   └── utils/
+│       └── logger.py       # Loglama utility
+├── frontend/               # React Frontend
+│   ├── src/
+│   │   ├── App.jsx        # Ana uygulama
+│   │   ├── main.jsx       # Giriş noktası
+│   │   ├── index.css      # Stiller
+│   │   ├── components/
+│   │   │   ├── MarketTable.jsx    # Piyasa tablosu
+│   │   │   ├── ActiveTrades.jsx   # Aktif işlemler
+│   │   │   └── MLAnalysis.jsx     # ML analizi
+│   │   └── utils/
+│   │       └── api.js     # API istemcisi
+│   ├── package.json
+│   └── vite.config.js
+└── data/                   # Veri klasörü
+    ├── logs/              # Log dosyaları
+    ├── models_cache/      # ML modelleri
+    └── backtest_results/  # Backtest sonuçları
 ```
 
-## API Endpoints
+## 🔧 Backend Kurulumu
 
-| Endpoint | Method | Açıklama |
-|---|---|---|
-| `/` | GET | Dashboard UI |
-| `/api/scan` | GET | Tüm pair sinyalleri |
-| `/api/pair/{symbol}` | GET | Tek pair detayı |
-| `/api/stats` | GET | Özet istatistikler |
-| `/api/model` | GET | ML model bilgisi + backtest |
-| `/api/train/{symbol}` | POST | Elle model eğitimi |
-| `/api/train_all` | POST | Global model eğitimi |
-| `/api/backtest/{symbol}` | GET | Backtest çalıştır |
-| `/ws` | WebSocket | Canlı veri akışı |
-| `/health` | GET | Servis durumu |
+### 1. Python Bağımlılıklarını Yükleyin
 
-## Render.com Deploy (Ücretsiz)
-
-### 1. GitHub'a yükle
 ```bash
-git init
-git add .
-git commit -m "MEXC Real ML Trader"
-git remote add origin https://github.com/KULLANICI/mexc-ml-trader.git
-git push -u origin main
+cd /workspace/backend
+pip install -r requirements.txt
 ```
 
-### 2. Render'da deploy
-1. render.com → Sign Up (ücretsiz, kart yok)
-2. New → Web Service → GitHub repoyu seç
-3. Ayarlar:
-   - **Runtime:** Python 3
-   - **Build Command:** `pip install -r backend/requirements.txt`
-   - **Start Command:** `cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT`
-   - **Plan:** Free
-4. Create Web Service → ~3 dakika deploy
+### 2. Çevre Değişkenlerini Ayarlayın
 
-### 3. Otomatik çalışma akışı
-- Servis açılır
-- MEXC API'den veri çeker (60sn bekler)
-- İlk 8 pair ile modeli eğitir (LightGBM)
-- Walk-forward validation çalışır
-- BTC_USDT backtest yapılır
-- Tüm pairler 30sn'de bir taranır
-- Sinyaller WebSocket ile dashboard'a akar
+```bash
+cp .env.example .env
+# .env dosyasını düzenleyin:
+# - MEXC_API_KEY: MEXC API anahtarınız
+# - MEXC_API_SECRET: MEXC API sırrınız
+```
 
-## MEXC Public API (API Key gerekmez)
-- `GET /api/v1/contract/ticker?symbol=BTC_USDT` → Anlık fiyat
-- `GET /api/v1/contract/kline/BTC_USDT?interval=Min15&limit=200` → OHLCV
+### 3. Backend Sunucusunu Başlatın
 
-## Önemli Notlar
-- Render ücretsiz planda 15dk kullanılmazsa **uyku moduna** girer
-- İlk açılışta 30-60 saniye bekleme olabilir
-- Model eğitimi ~20-60 saniye sürer (pair sayısına göre)
-- Gerçek emir açılmaz — sadece sinyal üretir
-- Accuracy %30-45 arasındadır (3 sınıflı problem için normal)
+```bash
+python main.py
+# veya
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Backend http://localhost:8000 adresinde çalışacaktır.
+
+## 🎨 Frontend Kurulumu
+
+### 1. Node.js Bağımlılıklarını Yükleyin
+
+```bash
+cd /workspace/frontend
+npm install
+```
+
+### 2. Frontend Geliştirme Sunucusunu Başlatın
+
+```bash
+npm run dev
+```
+
+Frontend http://localhost:3000 adresinde çalışacaktır.
+
+## 🚀 Sistem Özellikleri
+
+### Makine Öğrenimi
+- **48 Gelişmiş Özellik**: Momentum, trend, volatilite, hacim, otokorelasyon
+- **Ensemble Model**: Gradient Boosting + Random Forest
+- **Strict Validation**: %75+ güven, $20M+ hacim, model mutabakatı
+
+### Trading Kuralları
+- **Minimum Güven**: %75
+- **Minimum Hacim**: $20M (24 saat)
+- **Dinamik Kaldıraç**: 
+  - %85+ güven + $50M+ hacim → 20x
+  - %80+ güven + $30M+ hacim → 15x
+  - %75+ güven + $20M+ hacim → 10x
+  - Diğer → 5x
+- **Stop Loss**: %2
+- **Take Profit**: %4
+
+### Arayüz
+- **Market Scanner**: Tüm futures paritelerini tarar
+- **Active Trades**: Açık pozisyonları gösterir
+- **ML Analysis**: Detaylı model analizi ve grafikler
+
+## 📡 API Endpoints
+
+### REST API
+- `GET /api/market/scan` - Piyasa tarama
+- `GET /api/market/tickers` - Ticker bilgileri
+- `POST /api/ml/train/{symbol}` - Model eğitme
+- `GET /api/ml/predict/{symbol}` - Tahmin alma
+- `GET /api/trading/positions` - Pozisyonlar
+- `POST /api/trading/execute/{symbol}` - İşlem açma
+- `DELETE /api/trading/close/{symbol}` - Pozisyon kapatma
+
+### WebSocket
+- `WS /ws` - Gerçek zamanlı güncellemeler
+
+## ⚠️ Risk Uyarısı
+
+Kripto para vadeli işlemleri yüksek risk içerir. Sadece kaybetmeyi göze alabileceğiniz tutarlarla işlem yapın. Bu sistem bir yatırım tavsiyesi değildir.
+
+## 📝 Notlar
+
+- İlk kullanımda model eğitimi için birkaç dakika bekleyin
+- Test modunda çalıştırmak için API anahtarı girmeyebilirsiniz (sadece okuma işlemleri)
+- Canlı işlem için gerçek API anahtarları gereklidir
+- Loglar `/data/logs/trading.log` dosyasında tutulur
+
+## 🛠️ Sorun Giderme
+
+### Backend başlatılamıyor
+```bash
+# Bağımlılıkları kontrol edin
+pip install -r requirements.txt
+
+# Port kullanımını kontrol edin
+lsof -i :8000
+```
+
+### Frontend bağlanamıyor
+```bash
+# Backend'in çalıştığından emin olun
+curl http://localhost:8000/
+
+# CORS ayarlarını kontrol edin
+```
+
+### ML model hataları
+```bash
+# Yeterli veri olduğundan emin olun
+# En az 100 mum veresi gerekli
+```
+
+## 📞 Destek
+
+Sorularınız için log dosyalarını kontrol edin ve hata mesajlarını inceleyin.
