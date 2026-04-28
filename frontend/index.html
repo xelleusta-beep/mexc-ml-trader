@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MEXC ML Trader — Gerçek Zamanlı Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{
+  --bg:#0a0e1a;--bg2:#0f1424;--bg3:#141929;
+  --surface:#1a2035;--surface2:#202840;
+  --border:rgba(99,179,237,0.12);--border2:rgba(99,179,237,0.25);
+  --accent:#00d4ff;--accent2:#7c3aed;
+  --green:#10b981;--red:#ef4444;--amber:#f59e0b;
+  --text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
+  --glow:rgba(0,212,255,0.15);
+  --font-std: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font-family:var(--font-std);font-size:14px;background:var(--bg);color:var(--text);overflow-x:hidden}
+.grid-bg{position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(99,179,237,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(99,179,237,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none}
+.main{position:relative;z-index:1;max-width:1700px;margin:0 auto;padding:0 16px 40px}
+
+/* HEADER */
+.header{display:flex;align-items:center;justify-content:space-between;padding:18px 0 14px;border-bottom:1px solid var(--border);margin-bottom:16px}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-icon{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff;box-shadow:0 0 24px var(--glow)}
+.logo-title{font-size:22px;font-weight:800;color:var(--accent)}
+.logo-sub{font-size:10px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-top:1px}
+.header-right{display:flex;align-items:center;gap:12px}
+.conn-pill{display:flex;align-items:center;gap:6px;border-radius:20px;padding:5px 14px;font-size:11px;border:1px solid}
+.conn-ok{background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.3);color:var(--green)}
+.conn-err{background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.3);color:var(--red)}
+.conn-wait{background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.3);color:var(--amber)}
+.pulse{width:7px;height:7px;border-radius:50%;animation:pulse 1.5s infinite}
+.p-green{background:var(--green)} .p-red{background:var(--red)} .p-amber{background:var(--amber)}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.8)}}
+.btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border2);background:var(--surface);color:var(--accent);font-family:inherit;font-size:13px;cursor:pointer;transition:all 0.2s}
+.btn:hover{background:var(--surface2);border-color:var(--accent);box-shadow:0 0 12px var(--glow)}
+.btn-primary{background:var(--accent);color:#000;border-color:var(--accent);font-weight:700}
+.btn-primary:hover{box-shadow:0 0 20px var(--glow)}
+.btn-danger{background:rgba(239,68,68,0.1);color:var(--red);border-color:rgba(239,68,68,0.3)}
+
+/* TICKER */
+.ticker{background:var(--bg3);border-top:1px solid var(--border);border-bottom:1px solid var(--border);overflow:hidden;padding:8px 0;margin-bottom:16px}
+.ticker-inner{display:flex;gap:40px;white-space:nowrap;animation:scroll-left 40s linear infinite}
+@keyframes scroll-left{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.t-item{display:inline-flex;gap:8px;font-size:12px}
+.t-sym{font-weight:600;color:var(--text)}
+.t-price{color:var(--text2)}
+.up{color:var(--green)} .down{color:var(--red)} .neutral{color:var(--text3)}
+
+/* STATS */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:14px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;position:relative;overflow:hidden;transition:all 0.2s}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0.4}
+.stat-label{font-size:11px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}
+.stat-value{font-size:26px;font-weight:700}
+.stat-sub{font-size:12px;margin-top:3px}
+
+/* LAYOUT */
+.main-grid{display:grid;grid-template-columns:1fr 360px;gap:14px;margin-bottom:14px}
+.left-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.sidebar{display:flex;flex-direction:column;gap:14px}
+
+@media (max-width: 1200px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .sidebar { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+}
+
+@media (max-width: 768px) {
+  .header { flex-direction: column; gap: 15px; align-items: flex-start; }
+  .header-right { width: 100%; justify-content: space-between; flex-wrap: wrap; }
+  .stats-row { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .sidebar { grid-template-columns: 1fr; }
+  .logo-title { font-size: 16px; }
+  .logo-sub { font-size: 8px; }
+  .tbl-wrap { max-height: 500px; }
+  .main { padding: 0 10px 20px; }
+  /* Hide non-essential columns on mobile */
+  .tbl th:nth-child(1), .tbl td:nth-child(1),
+  .tbl th:nth-child(7), .tbl td:nth-child(7),
+  .tbl th:nth-child(9), .tbl td:nth-child(9),
+  .tbl th:nth-child(10), .tbl td:nth-child(10),
+  .tbl th:nth-child(11), .tbl td:nth-child(11),
+  .tbl th:nth-child(12), .tbl td:nth-child(12) { display: none; }
+}
+
+/* PANEL */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.panel-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg3)}
+.panel-title{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+
+/* TABLE */
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{text-align:left;padding:10px 10px;color:var(--text3);font-size:11px;letter-spacing:0.8px;text-transform:uppercase;border-bottom:1px solid var(--border);font-weight:600}
+.tbl td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,0.025);vertical-align:middle}
+.tbl tr:hover td{background:rgba(99,179,237,0.03)}
+.tbl tr:last-child td{border-bottom:none}
+.tbl-wrap{overflow-x:auto;max-height:380px;overflow-y:auto}
+.tbl-wrap::-webkit-scrollbar{width:3px;height:3px}
+.tbl-wrap::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* BADGES */
+.sig{padding:3px 9px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase}
+.sig-long{background:rgba(16,185,129,0.15);color:var(--green);border:1px solid rgba(16,185,129,0.3)}
+.sig-short{background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.3)}
+.sig-hold{background:rgba(245,158,11,0.15);color:var(--amber);border:1px solid rgba(245,158,11,0.3)}
+.sig-wait{background:rgba(100,116,139,0.15);color:var(--text3);border:1px solid rgba(100,116,139,0.3)}
+
+.tag{font-size:9px;padding:2px 5px;border-radius:3px;display:inline-block;margin:1px}
+.tg-rsi{background:rgba(124,58,237,0.2);color:#a78bfa}
+.tg-macd{background:rgba(16,185,129,0.15);color:var(--green)}
+.tg-bb{background:rgba(245,158,11,0.15);color:var(--amber)}
+.tg-ema{background:rgba(0,212,255,0.12);color:var(--accent)}
+.tg-mfi{background:rgba(239,68,68,0.12);color:#f87171}
+.tg-vol{background:rgba(99,179,237,0.1);color:#93c5fd}
+
+.pair-cell{display:flex;align-items:center;gap:7px}
+.sym-icon{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
+.conf-wrap{display:flex;align-items:center;gap:6px}
+.conf-bar{height:4px;border-radius:2px;background:var(--bg2);flex:1;min-width:60px}
+.conf-fill{height:100%;border-radius:2px;transition:width 0.6s ease}
+.status-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.s-active{background:var(--green);box-shadow:0 0 6px rgba(16,185,129,0.5);animation:pulse 2s infinite}
+.s-wait{background:var(--amber)}
+
+/* CHART */
+.chart-wrap{position:relative;width:100%;height:250px}
+
+/* TABS */
+.tabs{display:flex;border-bottom:1px solid var(--border)}
+.tab{padding:10px 16px;font-size:13px;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all 0.2s;text-transform:uppercase;letter-spacing:0.5px}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-body{display:none;padding:14px}
+.tab-body.active{display:block}
+
+/* LOG */
+.log{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;height:190px;overflow-y:auto;line-height:1.9}
+.log::-webkit-scrollbar{width:3px}
+.log::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.li{color:var(--accent)} .lw{color:var(--amber)} .ls{color:var(--green)} .le{color:var(--red)}
+
+/* SCANNER */
+.scanner-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;padding:12px;max-height:320px;overflow-y:auto}
+.scanner-grid::-webkit-scrollbar{width:3px}
+.scanner-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.sc-card{background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:11px;cursor:pointer;transition:all 0.2s;display:flex;justify-content:space-between;align-items:center}
+.sc-card:hover{border-color:var(--border2);background:var(--surface2)}
+.sc-card.real-data{border-left:2px solid var(--green)}
+.sc-pair{font-size:14px;font-weight:700}
+.sc-vol{font-size:12px;color:var(--text3);margin-top:2px}
+.sc-price{font-size:14px;font-weight:600;text-align:right}
+.sc-chg{font-size:12px;margin-top:2px;text-align:right}
+
+/* SIDEBAR */
+.metric{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)}
+.metric:last-child{border-bottom:none}
+.metric-label{font-size:13px;color:var(--text2)}
+.metric-val{font-size:14px;font-weight:600}
+.prog-bar{height:6px;background:var(--bg2);border-radius:3px;margin-top:10px}
+.prog-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent2),var(--accent));transition:width 0.8s}
+
+/* FILTER */
+.filters{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.f-btn{padding:4px 10px;font-size:11px;border-radius:5px;border:1px solid var(--border);background:var(--bg3);color:var(--text3);cursor:pointer;transition:all 0.2s;font-family:inherit;text-transform:uppercase}
+.f-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,0.08)}
+.search{background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:5px 10px;color:var(--text);font-family:inherit;font-size:13px;outline:none;width:160px;transition:all 0.2s}
+.search:focus{border-color:var(--accent)}
+.search::placeholder{color:var(--text3)}
+
+/* FEED */
+.feed-item{display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);align-items:flex-start}
+.feed-item:last-child{border-bottom:none}
+.feed-time{font-size:10px;color:var(--text3);min-width:50px}
+.feed-pair{font-size:11px;font-weight:600}
+.feed-detail{font-size:10px;color:var(--text3);margin-top:2px}
+
+.badge{background:var(--accent);color:#000;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700}
+.src-badge{font-size:9px;padding:1px 5px;border-radius:3px}
+.src-real{background:rgba(16,185,129,0.15);color:var(--green)}
+.src-sim{background:rgba(100,116,139,0.15);color:var(--text3)}
+
+.flex{display:flex;align-items:center}
+.gap8{gap:8px}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.anim{animation:fadeIn 0.4s ease both}
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="main">
+
+<!-- HEADER -->
+<div class="header anim">
+  <div class="logo">
+    <div class="logo-icon">ML</div>
+    <div>
+      <div class="logo-title">MEXC · ML TRADER</div>
+      <div class="logo-sub">Gerçek Zamanlı Makine Öğrenimi Trading Sistemi</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="conn-pill conn-wait" id="connPill"><div class="pulse p-amber"></div><span id="connText">Bağlanıyor...</span></div>
+    <span style="font-size:10px;color:var(--text3)" id="lastUpdate">—</span>
+    <button class="btn" onclick="reconnect()">Yeniden Bağlan</button>
+    <a href="/ml-details" class="btn" style="text-decoration:none">ML Detayları</a>
+    <button class="btn btn-primary" id="scanBtn" onclick="forceScan()">Tara</button>
+  </div>
+</div>
+
+<!-- TICKER -->
+<div class="ticker"><div class="ticker-inner" id="tickerEl"></div></div>
+
+<!-- STATS -->
+<div class="stats-row anim">
+  <div class="stat-card">
+    <div class="stat-label">Kasa Durumu</div>
+    <div class="stat-value style-accent" id="sCap">$100,000</div>
+    <div class="stat-sub neutral" id="sCapSub">Toplam Bakiye</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Toplam PnL</div>
+    <div class="stat-value up" id="sPnl">$0</div>
+    <div class="stat-sub neutral" id="sPnlSub">Hesaplanıyor</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Açık Pozisyonlar</div>
+    <div class="stat-value" id="sPos">0</div>
+    <div class="stat-sub neutral" id="sPosSub">Long / Short</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Win Rate</div>
+    <div class="stat-value" id="sWin">—</div>
+    <div class="stat-sub up">Son işlemler</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Model Accuracy</div>
+    <div class="stat-value" style="color:var(--accent)" id="sAcc">—</div>
+    <div class="stat-sub neutral">GBM+RF (v2 · 36 feat)</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Taranan Pair</div>
+    <div class="stat-value" style="color:var(--accent2)" id="sPairs">0</div>
+    <div class="stat-sub neutral" id="sDataSrc">MEXC Futures</div>
+  </div>
+</div>
+
+<!-- MAIN GRID -->
+<div class="main-grid">
+<div class="left-col">
+
+  <!-- ACTIVE TRADES -->
+  <div class="panel anim" id="activeTradesPanel" style="display:none; margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title"><div class="dot" style="background:var(--green)"></div>Aktif İşlemler <span class="badge" id="activeBadge">0</span></div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Zaman</th><th>Pair</th><th>Yön</th><th>Giriş</th>
+            <th>Mevcut</th><th>Kaldıraç</th><th>Büyüklük</th><th>PnL</th>
+          </tr>
+        </thead>
+        <tbody id="activeBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- AGENT TABLE -->
+  <div class="panel anim">
+    <div class="panel-header" style="flex-wrap: wrap; gap: 10px;">
+      <div class="panel-title"><div class="dot"></div>Tüm Stratejiler <span class="badge" id="agentBadge">0</span></div>
+      <div class="flex gap8" style="flex-wrap: wrap;">
+        <input class="search" id="searchInput" placeholder="Pair ara..." oninput="renderTable()">
+        <div class="filters">
+          <button class="f-btn active" onclick="setFilter('all',this)">Tümü</button>
+          <button class="f-btn" onclick="setFilter('LONG',this)">Long</button>
+          <button class="f-btn" onclick="setFilter('SHORT',this)">Short</button>
+          <button class="f-btn" onclick="setFilter('HOLD',this)">Hold</button>
+        </div>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Durum</th><th>Pair</th><th>Sinyal</th><th>Güven</th>
+            <th>Fiyat</th><th>PnL</th><th>Win%</th><th>Kaldıraç</th>
+            <th>İndikatörler</th><th>GBM</th><th>RF</th><th>Veri</th>
+          </tr>
+        </thead>
+        <tbody id="agentBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- CHART + TABS -->
+  <div class="panel anim">
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('pnl',this)">PnL Grafiği</div>
+      <div class="tab" onclick="switchTab('history',this)">İşlem Geçmişi</div>
+      <div class="tab" onclick="switchTab('signals',this)">Sinyal Akışı</div>
+      <div class="tab" onclick="switchTab('log',this)">Sistem Logu</div>
+    </div>
+    <div class="tab-body active" id="tab-pnl">
+      <div class="chart-wrap"><canvas id="pnlChart" role="img" aria-label="Kümülatif PnL zaman serisi">PnL grafiği</canvas></div>
+    </div>
+    <div class="tab-body" id="tab-history">
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr><th>Zaman</th><th>Pair</th><th>Yön</th><th>Giriş</th><th>Çıkış</th><th>Süre</th><th>PnL</th></tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="tab-body" id="tab-signals">
+      <div style="max-height:300px;overflow-y:auto" id="sigFeed"></div>
+    </div>
+    <div class="tab-body" id="tab-log">
+      <div class="log" id="logEl"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+
+  <!-- ML INFO -->
+  <div class="panel anim">
+    <div class="panel-header"><div class="panel-title"><div class="dot" style="background:var(--accent2)"></div>ML Ensemble Modeli</div></div>
+    <div style="padding:14px 16px">
+      <div class="metric"><span class="metric-label">Mimari</span><span class="metric-val" style="color:var(--accent);font-size:11px" id="mArch">GBM(lgbm)+RF(sklearn)</span></div>
+      <div class="metric"><span class="metric-label">Accuracy (WF)</span><span class="metric-val up" id="mAcc">—</span></div>
+      <div class="metric"><span class="metric-label">Sharpe Ratio</span><span class="metric-val" id="mSharpe">—</span></div>
+      <div class="metric"><span class="metric-label">Tahmin Sayısı</span><span class="metric-val" id="mPred">—</span></div>
+      <div class="metric"><span class="metric-label">Feedback Buffer</span><span class="metric-val" id="mFB">—</span></div>
+      <div class="metric"><span class="metric-label">Risk/Reward</span><span class="metric-val up">1:2 (dinamik SL/TP)</span></div>
+      <div class="metric"><span class="metric-label">Karar Eşiği</span><span class="metric-val" style="color:var(--accent2)">≥60% + ensemble</span></div>
+      <div style="margin-top:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:10px;color:var(--text3)">Model Güveni</span>
+          <span style="font-size:11px;color:var(--accent)" id="mConf">—</span>
+        </div>
+        <div class="prog-bar"><div class="prog-fill" id="confFill" style="width:0%"></div></div>
+      </div>
+      <div style="margin-top:8px;font-size:9px;color:var(--text3);text-align:center;padding:8px;background:var(--bg3);border-radius:6px;line-height:1.8">
+        36 Feature · RSI · StochRSI · MACD · BB · EMA · ATR<br>OBV · MFI · VWAP · Drift Dedektör · v2
+      </div>
+    </div>
+  </div>
+
+  <!-- LIVE SIGNALS -->
+  <div class="panel anim">
+    <div class="panel-header">
+      <div class="panel-title"><div class="dot" style="background:var(--green)"></div>Canlı Sinyaller</div>
+      <span style="font-size:10px;color:var(--text3)">Son 8</span>
+    </div>
+    <div style="padding:6px 14px;max-height:190px;overflow-y:auto" id="liveFeed"></div>
+  </div>
+
+  <!-- API STATUS -->
+  <div class="panel anim">
+    <div class="panel-header"><div class="panel-title"><div class="dot" style="background:var(--amber)"></div>Bağlantı & API</div></div>
+    <div style="padding:14px 16px">
+      <div class="metric"><span class="metric-label">MEXC API</span><span class="metric-val" id="apiStatus">Kontrol ediliyor</span></div>
+      <div class="metric"><span class="metric-label">WebSocket</span><span class="metric-val" id="wsStatus">—</span></div>
+      <div class="metric"><span class="metric-label">Gerçek Veri</span><span class="metric-val up" id="realCount">—</span></div>
+      <div class="metric"><span class="metric-label">Tarama Aralığı</span><span class="metric-val neutral">30 saniye</span></div>
+      <div class="metric"><span class="metric-label">Son Tarama</span><span class="metric-val neutral" id="lastScan">—</span></div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- SCANNER -->
+<div class="panel anim" style="margin-bottom:14px">
+  <div class="panel-header">
+    <div class="panel-title"><div class="dot" style="background:var(--accent2)"></div>MEXC Futures Scanner — Tüm Pairler
+      <span style="font-size:9px;color:var(--green);padding:2px 6px;background:rgba(16,185,129,0.1);border-radius:4px;margin-left:6px">CANLI</span>
+    </div>
+    <span style="font-size:10px;color:var(--text3)" id="scanInfo">Bekleniyor...</span>
+  </div>
+  <div class="scanner-grid" id="scanGrid"></div>
+</div>
+
+</div>
+
+<script>
+// ─── CONFIG ─────────────────────────────────────────────────────────
+const API_BASE = window.location.origin;
+const WS_URL = (window.location.protocol==='https:'?'wss':'ws')+'://'+window.location.host+'/ws';
+
+let ws = null;
+let pairData = {};
+let signalHistory = [];
+let pnlTimeline = [];
+let pnlChart = null;
+let currentFilter = 'all';
+let logs = [];
+let reconnectTimer = null;
+let statsInterval = null;
+
+// ─── WEBSOCKET ───────────────────────────────────────────────────────
+function connect() {
+  if(ws) { try{ws.close()}catch(e){} }
+  setConn('wait','Bağlanıyor...');
+  addLog('li','WebSocket bağlantısı kuruluyor: '+WS_URL);
+
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    setConn('ok','Bağlı — Canlı Veri');
+    document.getElementById('wsStatus').textContent='Aktif';
+    document.getElementById('wsStatus').className='metric-val up';
+    addLog('ls','WebSocket bağlandı — gerçek zamanlı veri akışı başladı');
+    if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null}
+  };
+
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if(msg.data && Array.isArray(msg.data)) {
+        processData(msg.data, msg.timestamp, msg.portfolio);
+      } else if (msg.type === 'init' && msg.portfolio) {
+        updatePortfolioUI(msg.portfolio);
+      }
+    } catch(err){ addLog('le','Veri parse hatası: '+err.message) }
+  };
+
+  ws.onerror = () => {
+    setConn('err','Bağlantı Hatası');
+    document.getElementById('wsStatus').textContent='Hata';
+    document.getElementById('wsStatus').className='metric-val down';
+    addLog('le','WebSocket bağlantı hatası — REST API\'ye geçiliyor');
+    // onclose fires after onerror - handles REST polling
+  };
+
+  ws.onclose = () => {
+    setConn('wait','Bağlantı Kesildi');
+    addLog('lw','WebSocket bağlantısı kesildi — 5s sonra yeniden denenecek');
+    if(!reconnectTimer) reconnectTimer = setTimeout(connect, 5000);
+    pollREST();
+  };
+}
+
+function reconnect() { connect(); }
+
+// ─── REST FALLBACK ───────────────────────────────────────────────────
+async function pollREST() {
+  try {
+    const r = await fetch(API_BASE+'/api/scan');
+    const d = await r.json();
+    if(d.success && d.data) {
+      processData(d.data, new Date().toISOString());
+      setConn('wait','REST Modu');
+      document.getElementById('apiStatus').textContent='Aktif (REST)';
+      document.getElementById('apiStatus').className='metric-val up';
+    }
+  } catch(e) {
+    addLog('le','REST API hatası — backend çalışıyor mu?');
+    document.getElementById('apiStatus').textContent='Erişilemiyor';
+    document.getElementById('apiStatus').className='metric-val down';
+  }
+}
+
+async function forceScan() {
+  addLog('li','Manuel tarama başlatıldı...');
+  document.getElementById('scanBtn').textContent='Taranıyor...';
+  await pollREST();
+  fetchStats();
+  document.getElementById('scanBtn').textContent='Tara';
+}
+
+async function fetchStats() {
+  try {
+    const r = await fetch(API_BASE+'/api/history');
+    const d = await r.json();
+    if(d.success && d.data) {
+      renderHistory(d.data);
+    }
+  } catch(e){}
+
+  try {
+    const r = await fetch(API_BASE+'/api/stats');
+    const d = await r.json();
+    if(d.success && d.data) {
+      const s = d.data;
+      updateStats(s);
+    }
+  } catch(e){}
+
+  try {
+    const r = await fetch(API_BASE+'/api/model');
+    const d = await r.json();
+    if(d.success && d.data) updateModelInfo(d.data);
+  } catch(e){}
+
+  try {
+    const r = await fetch(API_BASE+'/api/backtest_all');
+    const d = await r.json();
+    if(d.success && d.data && d.data.sharpe !== undefined) {
+      const el = document.getElementById('mSharpe');
+      if(el) el.textContent = d.data.sharpe.toFixed(2);
+    }
+  } catch(e){}
+}
+
+// ─── DATA PROCESSING ─────────────────────────────────────────────────
+function processData(dataArr, ts, portfolioData) {
+  let realCount = 0;
+  dataArr.forEach(d => {
+    const prev = pairData[d.symbol];
+    pairData[d.symbol] = d;
+    if(d.data_source==='real') realCount++;
+
+    // Detect signal change → add to history
+    if(!prev || prev.signal !== d.signal) {
+      addSignal(d);
+    }
+  });
+
+  // PnL update
+  const totalPnl = dataArr.reduce((s,d)=>s+(d.pnl||0), 0);
+  const now = ts ? new Date(ts) : new Date();
+  const timeStr = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
+  pnlTimeline.push({t: timeStr, v: totalPnl});
+  if(pnlTimeline.length > 80) pnlTimeline.shift();
+
+  // Update UI
+  renderTable();
+  renderActiveTrades(dataArr);
+  renderScanner(dataArr);
+  renderTicker(dataArr);
+  updatePnlChart();
+
+  const activeCount = dataArr.filter(d=>d.active_pos).length;
+  document.getElementById('sPnl').textContent = (totalPnl>=0?'+':'')+'$'+totalPnl.toFixed(0);
+  document.getElementById('sPnl').className = 'stat-value '+(totalPnl>=0?'up':'down');
+  document.getElementById('sPos').textContent = activeCount;
+  document.getElementById('sPairs').textContent = dataArr.length;
+  document.getElementById('realCount').textContent = realCount+'/'+dataArr.length+' pair';
+  document.getElementById('realCount').className = realCount>0?'metric-val up':'metric-val neutral';
+
+  const avgWin = dataArr.length > 0 ? dataArr.reduce((s,d)=>s+(d.win_rate||0),0)/dataArr.length : 0;
+  document.getElementById('sWin').textContent = avgWin.toFixed(1)+'%';
+  document.getElementById('sWin').className = 'stat-value '+(avgWin>60?'up':'down');
+
+  const lastScanTime = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0')+':'+now.getSeconds().toString().padStart(2,'0');
+  document.getElementById('lastScan').textContent = lastScanTime;
+  document.getElementById('lastUpdate').textContent = 'Güncellendi: '+lastScanTime;
+  document.getElementById('scanInfo').textContent = dataArr.length+' pair tarandı — '+realCount+' gerçek veri';
+  document.getElementById('sDataSrc').textContent = realCount>0?'MEXC API ✓':'API bekleniyor';
+
+  if(portfolioData) updatePortfolioUI(portfolioData);
+}
+
+// ─── RENDER TABLE ─────────────────────────────────────────────────────
+function renderTable() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  let rows = Object.values(pairData).filter(d => {
+    const matchF = currentFilter==='all' || d.signal===currentFilter;
+    const matchS = d.symbol.toLowerCase().includes(search);
+    return matchF && matchS;
+  });
+
+  document.getElementById('agentBadge').textContent = rows.length;
+
+  const html = rows.map(d => {
+    const sym = d.symbol.replace('_USDT','');
+    const priceStr = d.price < 1 ? d.price.toFixed(5) : d.price.toFixed(2);
+    const confColor = d.confidence>80?'var(--green)':d.confidence>65?'var(--amber)':'var(--red)';
+    const tags = (d.indicators||[]).map(ind => {
+      const cls = ind.startsWith('RSI')?'tg-rsi':ind==='MACD'?'tg-macd':ind==='BB'?'tg-bb':ind==='EMA'?'tg-ema':ind.startsWith('MFI')?'tg-mfi':'tg-vol';
+      return `<span class="tag ${cls}">${ind}</span>`;
+    }).join('');
+
+    return `<tr>
+      <td><span class="status-dot s-active"></span></td>
+      <td><div class="pair-cell"><div class="sym-icon" style="background:${symColor(sym)};color:#fff">${sym[0]}</div>${sym}/USDT</div></td>
+      <td><span class="sig ${sigCls(d.signal)}">${d.signal||'—'}</span></td>
+      <td><div class="conf-wrap"><div class="conf-bar"><div class="conf-fill" style="width:${d.confidence||0}%;background:${confColor}"></div></div><span style="font-size:10px;color:${confColor};min-width:32px">${(d.confidence||0).toFixed(0)}%</span></div></td>
+      <td style="font-weight:600">$${priceStr}</td>
+      <td class="${(d.pnl||0)>=0?'up':'down'}" style="font-weight:700">${(d.pnl||0)>=0?'+':''}$${(d.pnl||0).toFixed(0)}</td>
+      <td class="${(d.win_rate||0)>=50?'up':'down'}">${(d.win_rate||0).toFixed(0)}%</td>
+      <td style="color:var(--accent2)">${d.leverage||5}x</td>
+      <td>${tags}</td>
+      <td><span class="sig ${sigCls(d.gbm_signal)}" style="font-size:9px;padding:2px 5px">${d.gbm_signal||'—'}</span></td>
+      <td><span class="sig ${sigCls(d.rf_signal)}" style="font-size:9px;padding:2px 5px">${d.rf_signal||'—'}</span></td>
+      <td><span class="src-badge ${d.data_source==='real'?'src-real':'src-sim'}">${d.data_source==='real'?'Gerçek':'Sim'}</span></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('agentBody').innerHTML = html || `<tr><td colspan="13" style="text-align:center;padding:24px;color:var(--text3)">Veri bekleniyor... Backend çalışıyor mu?</td></tr>`;
+}
+
+function renderActiveTrades(dataArr) {
+  const active = dataArr.filter(d => d.active_pos);
+  const panel = document.getElementById('activeTradesPanel');
+
+  if(active.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+
+  panel.style.display = 'block';
+  document.getElementById('activeBadge').textContent = active.length;
+
+  const html = active.map(d => {
+    const pos = d.active_pos;
+    const sym = d.symbol.replace('_USDT','');
+    const priceStr = d.price < 1 ? d.price.toFixed(5) : d.price.toFixed(2);
+    const entryStr = pos.entry_price < 1 ? pos.entry_price.toFixed(5) : pos.entry_price.toFixed(2);
+    const pnlVal = pos.unrealized_pnl || 0;
+
+    return `<tr>
+      <td style="color:var(--text3);font-size:11px">${pos.timestamp.split(' ')[1]}</td>
+      <td><div class="pair-cell"><div class="sym-icon" style="background:${symColor(sym)};color:#fff">${sym[0]}</div>${sym}</div></td>
+      <td><span class="sig ${sigCls(pos.side)}">${pos.side}</span></td>
+      <td style="font-weight:600">$${entryStr}</td>
+      <td style="font-weight:600">$${priceStr}</td>
+      <td style="color:var(--accent2)">${pos.leverage}x</td>
+      <td style="color:var(--text2)">$${pos.size.toFixed(0)}</td>
+      <td class="${pnlVal>=0?'up':'down'}" style="font-weight:700">${pnlVal>=0?'+':''}$${pnlVal.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('activeBody').innerHTML = html;
+}
+
+// ─── RENDER SCANNER ───────────────────────────────────────────────────
+function renderScanner(dataArr) {
+  const html = dataArr.map(d => {
+    const sym = d.symbol.replace('_USDT','');
+    const priceStr = d.price < 1 ? d.price.toFixed(5) : d.price.toFixed(2);
+    return `<div class="sc-card ${d.data_source==='real'?'real-data':''}">
+      <div><div class="sc-pair">${sym}/USDT</div><div class="sc-vol">Vol: $${formatVol(d.volume24h||0)} · ${(d.confidence||0).toFixed(0)}%</div></div>
+      <div>
+        <div class="sc-price">$${priceStr}</div>
+        <div class="sc-chg ${(d.change24h||0)>=0?'up':'down'}">${(d.change24h||0)>=0?'+':''}${(d.change24h||0).toFixed(2)}% <span class="sig ${sigCls(d.signal)}" style="font-size:9px;padding:1px 5px">${d.signal}</span></div>
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('scanGrid').innerHTML = html;
+}
+
+// ─── TICKER ───────────────────────────────────────────────────────────
+function renderTicker(dataArr) {
+  const items = dataArr.slice(0,20).map(d => {
+    const sym = d.symbol.replace('_USDT','');
+    const priceStr = d.price < 1 ? d.price.toFixed(4) : d.price.toFixed(2);
+    return `<span class="t-item"><span class="t-sym">${sym}/USDT</span><span class="t-price">$${priceStr}</span><span style="font-size:10px;color:var(--text3)">V:$${formatVol(d.volume24h||0)}</span><span class="${(d.change24h||0)>=0?'up':'down'}">${(d.change24h||0)>=0?'+':''}${(d.change24h||0).toFixed(2)}%</span></span>`;
+  }).join('');
+  const el = document.getElementById('tickerEl');
+  el.innerHTML = items+items;
+}
+
+// ─── PNL CHART ────────────────────────────────────────────────────────
+function initChart() {
+  const ctx = document.getElementById('pnlChart').getContext('2d');
+  pnlChart = new Chart(ctx, {
+    type:'line',
+    data:{labels:[],datasets:[{label:'PnL ($)',data:[],borderColor:'#00d4ff',borderWidth:2,pointRadius:0,fill:true,backgroundColor:(c)=>{const g=c.chart.ctx.createLinearGradient(0,0,0,240);g.addColorStop(0,'rgba(0,212,255,0.15)');g.addColorStop(1,'rgba(0,212,255,0)');return g},tension:0.4}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#475569',maxTicksLimit:8,font:{size:10}},border:{display:false}},y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#475569',font:{size:10},callback:v=>'$'+v.toFixed(0)},border:{display:false}}}}
+  });
+}
+
+function updatePnlChart() {
+  if(!pnlChart) return;
+  pnlChart.data.labels = pnlTimeline.map(p=>p.t);
+  pnlChart.data.datasets[0].data = pnlTimeline.map(p=>p.v);
+  pnlChart.update('none');
+}
+
+// ─── SIGNAL FEED ──────────────────────────────────────────────────────
+function addSignal(d) {
+  const now = new Date();
+  const t = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0')+':'+now.getSeconds().toString().padStart(2,'0');
+  const sym = d.symbol.replace('_USDT','');
+  signalHistory.unshift({t, sym, sig:d.signal, conf:d.confidence, pnl:d.pnl, model:d.model_used});
+  if(signalHistory.length>60) signalHistory.pop();
+  renderFeeds();
+}
+
+function renderFeeds() {
+  const html = signalHistory.slice(0,20).map(s=>`
+    <div class="feed-item">
+      <div class="feed-time">${s.t}</div>
+      <div>
+        <div class="feed-pair">${s.sym}/USDT — <span class="sig ${sigCls(s.sig)}" style="font-size:9px;padding:2px 6px">${s.sig}</span></div>
+        <div class="feed-detail">Güven: ${(s.conf||0).toFixed(0)}% · PnL: <span class="${(s.pnl||0)>=0?'up':'down'}">${(s.pnl||0)>=0?'+':''}$${(s.pnl||0).toFixed(0)}</span></div>
+      </div>
+    </div>`).join('');
+  document.getElementById('sigFeed').innerHTML = html;
+  document.getElementById('liveFeed').innerHTML = signalHistory.slice(0,6).map(s=>`
+    <div class="feed-item">
+      <div class="feed-time">${s.t}</div>
+      <div>
+        <div class="feed-pair" style="font-size:10px">${s.sym} <span class="sig ${sigCls(s.sig)}" style="font-size:9px;padding:1px 5px">${s.sig}</span></div>
+        <div class="feed-detail">${(s.conf||0).toFixed(0)}% güven</div>
+      </div>
+    </div>`).join('');
+}
+
+// ─── LOG ──────────────────────────────────────────────────────────────
+function addLog(cls, msg) {
+  const now = new Date();
+  const t = `[${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}]`;
+  logs.unshift({cls, msg, t});
+  if(logs.length>100) logs.pop();
+  document.getElementById('logEl').innerHTML = logs.slice(0,30).map(l=>`<div class="${l.cls}">${l.t} ${l.msg}</div>`).join('');
+}
+
+// ─── MODEL INFO ───────────────────────────────────────────────────────
+function updateModelInfo(info) {
+  const acc = (info.wf_result && info.wf_result.accuracy) ? info.wf_result.accuracy : 0;
+  document.getElementById('mAcc').textContent = acc + '%';
+  document.getElementById('mAcc').className = 'metric-val ' + (acc > 60 ? 'up' : 'down');
+  document.getElementById('mPred').textContent = (info.predictions_made || 0).toLocaleString();
+  document.getElementById('mFB').textContent = (info.feedback_buffer || 0) + ' sample';
+  // Sharpe backtest'ten al
+  if(info.backtest && info.backtest.sharpe !== undefined) {
+    const el = document.getElementById('mSharpe');
+    if(el) el.textContent = info.backtest.sharpe.toFixed(3);
+  }
+  // Drift uyarısı
+  const drift = info.drift_status;
+  if(drift && drift.is_drifting) {
+    const arch = document.getElementById('mArch');
+    if(arch) arch.style.color = 'var(--red)';
+    arch.title = 'DRIFT ALGILANDI — Otomatik retrain tetikleniyor';
+  }
+  document.getElementById('sAcc').textContent = acc + '%';
+  if(info.models) {
+    const names = info.models.map(m => m.name[0]).join('+');
+    document.getElementById('mArch').textContent = info.models.map(m => `${m.name}(${m.backend})`).join(' + ');
+  }
+  const conf = Math.min(95, Math.max(55, acc));
+  document.getElementById('mConf').textContent = conf.toFixed(0) + '%';
+  document.getElementById('confFill').style.width = conf + '%';
+}
+
+function updatePortfolioUI(p) {
+  if(!p) return;
+  document.getElementById('sCap').textContent = '$' + p.capital.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+  const chg = p.capital - p.initial_capital;
+  document.getElementById('sCap').className = 'stat-value ' + (chg >= 0 ? 'up' : 'down');
+  document.getElementById('sCapSub').textContent = (chg>=0?'+':'') + '$' + chg.toFixed(2) + ' Net Kar/Zarar';
+}
+
+function renderHistory(history) {
+  const html = history.map(h => {
+    const sym = h.symbol.replace('_USDT','');
+    return `<tr>
+      <td style="color:var(--text3);font-size:11px">${h.time}</td>
+      <td style="font-weight:600">${sym}</td>
+      <td><span class="sig ${sigCls(h.side)}" style="font-size:9px;padding:1px 5px">${h.side}</span></td>
+      <td>$${h.entry_price < 1 ? h.entry_price.toFixed(5) : h.entry_price.toFixed(2)}</td>
+      <td>$${h.exit_price < 1 ? h.exit_price.toFixed(5) : h.exit_price.toFixed(2)}</td>
+      <td style="color:var(--text3)">${h.duration}</td>
+      <td class="${h.pnl>=0?'up':'down'}" style="font-weight:700">${h.pnl>=0?'+':''}$${h.pnl.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('historyBody').innerHTML = html || `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">Henüz tamamlanmış işlem yok.</td></tr>`;
+}
+
+function updateStats(s) {
+  if(s.win_rate) {
+    document.getElementById('sWin').textContent = s.win_rate+'%';
+    document.getElementById('sWin').className = 'stat-value '+(s.win_rate>60?'up':'down');
+  }
+  if(s.model_accuracy) {
+    document.getElementById('sAcc').textContent = s.model_accuracy+'%';
+    document.getElementById('mAcc').textContent = s.model_accuracy+'%';
+  }
+  if(s.total_pnl !== undefined) {
+    document.getElementById('sPnl').textContent = (s.total_pnl>=0?'+':'')+'$'+s.total_pnl.toFixed(0);
+    document.getElementById('sPnl').className = 'stat-value '+(s.total_pnl>=0?'up':'down');
+    document.getElementById('sPnlSub').textContent = (s.closed_longs||0)+' Long · '+(s.closed_shorts||0)+' Short (Closed)';
+  }
+  if(s.active_longs !== undefined) {
+    document.getElementById('sPos').textContent = s.active_longs + s.active_shorts;
+    document.getElementById('sPosSub').textContent = s.active_longs + ' Long · ' + s.active_shorts + ' Short (Live)';
+  }
+  if(s.portfolio) updatePortfolioUI(s.portfolio);
+}
+
+// ─── HELPERS ──────────────────────────────────────────────────────────
+function setConn(state, text) {
+  const pill = document.getElementById('connPill');
+  if(!pill) return;
+  const dot = pill.querySelector('.pulse');
+  pill.className = 'conn-pill conn-'+state;
+  if(dot) dot.className = 'pulse p-'+(state==='ok'?'green':state==='err'?'red':'amber');
+  document.getElementById('connText').textContent = text;
+}
+
+function formatVol(v) {
+  if (v >= 1000000000) return (v / 1000000000).toFixed(2) + 'B';
+  if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+  return v.toFixed(0);
+}
+
+function sigCls(s) {
+  if(s==='LONG') return 'sig-long';
+  if(s==='SHORT') return 'sig-short';
+  if(s==='HOLD') return 'sig-hold';
+  return 'sig-wait';
+}
+
+function symColor(sym) {
+  const c=['#f7931a','#627eea','#f0b90b','#9945ff','#e84142','#00ab2e','#3cc3d4','#e25cc3','#0033a1','#6c4d9d'];
+  let h=0; for(let ch of sym) h=(h*31+ch.charCodeAt(0))%c.length; return c[h];
+}
+
+function setFilter(f, el) {
+  currentFilter = f;
+  document.querySelectorAll('.f-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  renderTable();
+}
+
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-body').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+
+// ─── BOOT ─────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  initChart();
+  addLog('li','MEXC ML Trader başlatıldı');
+  addLog('li','Backend: '+API_BASE);
+  addLog('li','WebSocket: '+WS_URL);
+
+  // Auto-connect with slight delay to ensure everything is ready
+  setTimeout(connect, 500);
+
+  setInterval(fetchStats, 15000);
+  fetchStats();
+});
+
+// Sharpe ratio is updated from /api/backtest_all via fetchStats
+</script>
+</body>
+</html>
