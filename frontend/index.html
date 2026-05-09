@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MEXC RL+ML Trader</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{
+  --bg:#0a0e1a;--bg2:#0f1424;--bg3:#141929;
+  --surface:#1a2035;--surface2:#202840;
+  --border:rgba(99,179,237,0.12);--border2:rgba(99,179,237,0.25);
+  --accent:#00d4ff;--accent2:#7c3aed;
+  --green:#10b981;--red:#ef4444;--amber:#f59e0b;--purple:#a78bfa;
+  --text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
+  --glow:rgba(0,212,255,0.15);
+  --font-std:'Inter',-apple-system,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font-family:var(--font-std);font-size:14px;background:var(--bg);color:var(--text);overflow-x:hidden}
+.grid-bg{position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(99,179,237,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(99,179,237,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none}
+.main{position:relative;z-index:1;max-width:1800px;margin:0 auto;padding:0 16px 40px}
+.header{display:flex;align-items:center;justify-content:space-between;padding:18px 0 14px;border-bottom:1px solid var(--border);margin-bottom:16px;flex-wrap:wrap;gap:10px}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-icon{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff}
+.logo-title{font-size:20px;font-weight:800;color:var(--accent)}
+.logo-sub{font-size:10px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-top:1px}
+.header-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.conn-pill{display:flex;align-items:center;gap:6px;border-radius:20px;padding:5px 12px;font-size:11px;border:1px solid}
+.conn-ok{background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.3);color:var(--green)}
+.conn-err{background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.3);color:var(--red)}
+.conn-wait{background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.3);color:var(--amber)}
+.pulse{width:7px;height:7px;border-radius:50%;animation:pulse 1.5s infinite}
+.p-green{background:var(--green)}.p-red{background:var(--red)}.p-amber{background:var(--amber)}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.8)}}
+.btn{padding:6px 12px;border-radius:8px;border:1px solid var(--border2);background:var(--surface);color:var(--accent);font-family:inherit;font-size:12px;cursor:pointer;transition:all 0.2s}
+.btn:hover{background:var(--surface2);border-color:var(--accent)}
+.btn-primary{background:var(--accent);color:#000;font-weight:700}
+.btn-rl{background:rgba(124,58,237,0.15);color:var(--purple);border-color:rgba(124,58,237,0.4)}
+.ticker{background:var(--bg3);border-top:1px solid var(--border);border-bottom:1px solid var(--border);overflow:hidden;padding:8px 0;margin-bottom:16px}
+.ticker-inner{display:flex;gap:40px;white-space:nowrap;animation:scroll-left 40s linear infinite}
+@keyframes scroll-left{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.t-item{display:inline-flex;gap:8px;font-size:12px}
+.t-sym{font-weight:600}.t-price{color:var(--text2)}
+.up{color:var(--green)}.down{color:var(--red)}.neutral{color:var(--text3)}
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;position:relative;overflow:hidden}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0.4}
+.stat-card.rl-card{border-color:rgba(124,58,237,0.2)}.stat-card.rl-card::before{background:linear-gradient(90deg,transparent,var(--accent2),transparent);opacity:0.7}
+.stat-card.vol-card{border-color:rgba(245,158,11,0.18)}.stat-card.vol-card::before{background:linear-gradient(90deg,transparent,var(--amber),transparent);opacity:0.6}
+.stat-label{font-size:11px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}
+.stat-value{font-size:24px;font-weight:700}.stat-value.sm{font-size:17px}
+.stat-sub{font-size:11px;margin-top:3px}
+.main-grid{display:grid;grid-template-columns:1fr 330px;gap:14px;margin-bottom:14px}
+.left-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.sidebar{display:flex;flex-direction:column;gap:14px}
+@media(max-width:1200px){.main-grid{grid-template-columns:1fr}.sidebar{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}}
+@media(max-width:768px){.stats-row{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}.main{padding:0 8px 20px}}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.panel-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg3);flex-wrap:wrap;gap:8px}
+.panel-title{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{text-align:left;padding:8px 7px;color:var(--text3);font-size:10px;letter-spacing:0.8px;text-transform:uppercase;border-bottom:1px solid var(--border);font-weight:600;white-space:nowrap}
+.tbl td{padding:7px 7px;border-bottom:1px solid rgba(255,255,255,0.025);vertical-align:middle}
+.tbl tr:hover td{background:rgba(99,179,237,0.03)}.tbl tr:last-child td{border-bottom:none}
+.tbl-wrap{overflow-x:auto;max-height:370px;overflow-y:auto}
+.tbl-wrap::-webkit-scrollbar{width:3px;height:3px}
+.tbl-wrap::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.sig{padding:2px 6px;border-radius:20px;font-size:9px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase}
+.sig-long{background:rgba(16,185,129,0.15);color:var(--green);border:1px solid rgba(16,185,129,0.3)}
+.sig-short{background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.3)}
+.sig-hold{background:rgba(245,158,11,0.15);color:var(--amber);border:1px solid rgba(245,158,11,0.3)}
+.sig-wait{background:rgba(100,116,139,0.15);color:var(--text3);border:1px solid rgba(100,116,139,0.3)}
+.src-rlml{background:rgba(0,212,255,0.12);color:var(--accent);border:1px solid rgba(0,212,255,0.3);font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700}
+.src-mlonly{background:rgba(16,185,129,0.1);color:var(--green);border:1px solid rgba(16,185,129,0.25);font-size:9px;padding:1px 5px;border-radius:3px}
+.src-rlonly{background:rgba(124,58,237,0.12);color:var(--purple);border:1px solid rgba(124,58,237,0.3);font-size:9px;padding:1px 5px;border-radius:3px}
+.src-wait{background:rgba(100,116,139,0.1);color:var(--text3);font-size:9px;padding:1px 5px;border-radius:3px}
+.tag{font-size:9px;padding:2px 4px;border-radius:3px;display:inline-block;margin:1px}
+.tg-rsi{background:rgba(124,58,237,0.2);color:#a78bfa}.tg-macd{background:rgba(16,185,129,0.15);color:var(--green)}
+.tg-bb{background:rgba(245,158,11,0.15);color:var(--amber)}.tg-ema{background:rgba(0,212,255,0.12);color:var(--accent)}
+.tg-mfi{background:rgba(239,68,68,0.12);color:#f87171}.tg-vol{background:rgba(99,179,237,0.1);color:#93c5fd}
+.pair-cell{display:flex;align-items:center;gap:6px}
+.sym-icon{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
+.conf-wrap{display:flex;align-items:center;gap:5px}
+.conf-bar{height:3px;border-radius:2px;background:var(--bg2);flex:1;min-width:45px}
+.conf-fill{height:100%;border-radius:2px;transition:width 0.6s ease}
+.chart-wrap{position:relative;width:100%;height:230px}
+.tabs{display:flex;border-bottom:1px solid var(--border)}
+.tab{padding:8px 12px;font-size:11px;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all 0.2s;text-transform:uppercase;letter-spacing:0.5px}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-body{display:none;padding:12px}.tab-body.active{display:block}
+.log{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;height:170px;overflow-y:auto;line-height:1.9}
+.log::-webkit-scrollbar{width:3px}.log::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.li{color:var(--accent)}.lw{color:var(--amber)}.ls{color:var(--green)}.le{color:var(--red)}
+.scanner-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;padding:12px;max-height:280px;overflow-y:auto}
+.scanner-grid::-webkit-scrollbar{width:3px}.scanner-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.sc-card{background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:10px;display:flex;justify-content:space-between;align-items:center;transition:all 0.2s}
+.sc-card:hover{border-color:var(--border2);background:var(--surface2)}.sc-card.real-data{border-left:2px solid var(--green)}
+.sc-pair{font-size:13px;font-weight:700}.sc-vol{font-size:10px;color:var(--text3);margin-top:2px}
+.sc-price{font-size:13px;font-weight:600;text-align:right}.sc-chg{font-size:11px;margin-top:2px;text-align:right}
+.metric{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)}
+.metric:last-child{border-bottom:none}.metric-label{font-size:12px;color:var(--text2)}.metric-val{font-size:12px;font-weight:600}
+.prog-bar{height:5px;background:var(--bg2);border-radius:3px;margin-top:8px}
+.prog-fill{height:100%;border-radius:3px;transition:width 0.8s}
+.rl-bar{height:4px;background:var(--bg2);border-radius:2px;margin-top:6px}
+.rl-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--accent2),var(--accent));transition:width 0.8s}
+.filters{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.f-btn{padding:3px 7px;font-size:10px;border-radius:5px;border:1px solid var(--border);background:var(--bg3);color:var(--text3);cursor:pointer;transition:all 0.2s;font-family:inherit;text-transform:uppercase}
+.f-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,0.08)}
+.search{background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:4px 9px;color:var(--text);font-family:inherit;font-size:12px;outline:none;width:130px}
+.search:focus{border-color:var(--accent)}.search::placeholder{color:var(--text3)}
+.feed-item{display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);align-items:flex-start}
+.feed-item:last-child{border-bottom:none}.feed-time{font-size:10px;color:var(--text3);min-width:44px}
+.feed-pair{font-size:11px;font-weight:600}.feed-detail{font-size:10px;color:var(--text3);margin-top:1px}
+.badge{background:var(--accent);color:#000;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700}
+.src-real{background:rgba(16,185,129,0.15);color:var(--green);font-size:9px;padding:1px 5px;border-radius:3px}
+.src-sim{background:rgba(100,116,139,0.15);color:var(--text3);font-size:9px;padding:1px 5px;border-radius:3px}
+.rl-panel-hdr{background:linear-gradient(135deg,rgba(124,58,237,0.12),rgba(0,212,255,0.06))}
+.flex{display:flex;align-items:center}.gap8{gap:8px}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.anim{animation:fadeIn 0.4s ease both}
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="main">
+
+<div class="header anim">
+  <div class="logo">
+    <div class="logo-icon">RL</div>
+    <div>
+      <div class="logo-title">MEXC &middot; RL+ML TRADER</div>
+      <div class="logo-sub">PPO + LightGBM+RF &middot; v3.0</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="conn-pill conn-wait" id="connPill"><div class="pulse p-amber"></div><span id="connText">Bağlanıyor...</span></div>
+    <span style="font-size:10px;color:var(--text3)" id="lastUpdate">—</span>
+    <button class="btn" onclick="reconnect()">Yeniden Bağlan</button>
+    <a href="/ml-details" class="btn" style="text-decoration:none">ML+RL Detayları</a>
+    <button class="btn btn-rl" onclick="trainRL()">RL Eğit</button>
+    <button class="btn btn-primary" id="scanBtn" onclick="forceScan()">Tara</button>
+  </div>
+</div>
+
+<div class="ticker"><div class="ticker-inner" id="tickerEl"></div></div>
+
+<div class="stats-row anim">
+  <div class="stat-card">
+    <div class="stat-label">Kasa Durumu</div>
+    <div class="stat-value" id="sCap">$100,000</div>
+    <div class="stat-sub neutral" id="sCapSub">Toplam Bakiye</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Toplam PnL</div>
+    <div class="stat-value up" id="sPnl">$0</div>
+    <div class="stat-sub neutral" id="sPnlSub">Hesaplanıyor</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Açık Pozisyonlar</div>
+    <div class="stat-value" id="sPos">0</div>
+    <div class="stat-sub neutral" id="sPosSub">Long / Short</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Win Rate</div>
+    <div class="stat-value" id="sWin">—</div>
+    <div class="stat-sub up">Son işlemler</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">ML Accuracy</div>
+    <div class="stat-value" style="color:var(--accent)" id="sAcc">—</div>
+    <div class="stat-sub neutral">GBM+RF (36 feat)</div>
+  </div>
+  <div class="stat-card rl-card">
+    <div class="stat-label">RL Agent (PPO)</div>
+    <div class="stat-value sm" style="color:var(--purple)" id="sRLSteps">—</div>
+    <div class="stat-sub" style="color:var(--text3)" id="sRLSub">Adım / Ort ödül</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Taranan Pair</div>
+    <div class="stat-value" style="color:var(--accent2)" id="sPairs">0</div>
+    <div class="stat-sub neutral" id="sDataSrc">MEXC Futures</div>
+  </div>
+  <div class="stat-card vol-card">
+    <div class="stat-label">Kapatılan Hacim</div>
+    <div class="stat-value sm" style="color:var(--amber)" id="sNotional">$0</div>
+    <div class="stat-sub" style="color:var(--text3)" id="sNotionalSub">0 işlem · Kaldıraçsız</div>
+  </div>
+</div>
+
+<div class="main-grid">
+<div class="left-col">
+
+  <div class="panel anim" id="activeTradesPanel" style="display:none">
+    <div class="panel-header">
+      <div class="panel-title"><div class="dot" style="background:var(--green)"></div>Aktif İşlemler <span class="badge" id="activeBadge">0</span></div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>Zaman</th><th>Pair</th><th>Yön</th><th>Giriş</th><th>Mevcut</th><th>Kaldıraç</th><th>Büyüklük</th><th>PnL</th><th>Kaynak</th></tr></thead>
+        <tbody id="activeBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel anim">
+    <div class="panel-header">
+      <div class="panel-title"><div class="dot"></div>Tüm Stratejiler <span class="badge" id="agentBadge">0</span></div>
+      <div class="flex gap8" style="flex-wrap:wrap">
+        <input class="search" id="searchInput" placeholder="Pair ara..." oninput="renderTable()">
+        <div class="filters">
+          <button class="f-btn active" onclick="setFilter('all',this)">Tümü</button>
+          <button class="f-btn" onclick="setFilter('LONG',this)">Long</button>
+          <button class="f-btn" onclick="setFilter('SHORT',this)">Short</button>
+          <button class="f-btn" onclick="setFilter('HOLD',this)">Hold</button>
+        </div>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th></th><th>Pair</th><th>Sinyal</th><th>Güven</th><th>Fiyat</th><th>PnL</th><th>Win%</th><th>Kald.</th><th>RL Sig</th><th>RL Güv</th><th>Kaynak</th><th>GBM</th><th>RF</th><th>İnd.</th><th>Veri</th></tr></thead>
+        <tbody id="agentBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel anim">
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('pnl',this)">PnL Grafiği</div>
+      <div class="tab" onclick="switchTab('history',this)">İşlem Geçmişi</div>
+      <div class="tab" onclick="switchTab('signals',this)">Sinyal Akışı</div>
+      <div class="tab" onclick="switchTab('log',this)">Sistem Logu</div>
+    </div>
+    <div class="tab-body active" id="tab-pnl">
+      <div class="chart-wrap"><canvas id="pnlChart"></canvas></div>
+    </div>
+    <div class="tab-body" id="tab-history">
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Zaman</th><th>Pair</th><th>Yön</th><th>Kald.</th><th>Hacim</th><th>Kaynak</th><th>Giriş</th><th>Çıkış</th><th>Süre</th><th>PnL</th></tr></thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;padding:10px 12px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:8px;display:flex;gap:20px;flex-wrap:wrap">
+        <div><span style="font-size:11px;color:var(--text3)">Toplam Kapatılan</span><br><span style="font-size:15px;font-weight:700;color:var(--amber)" id="histTotalTrades">0</span></div>
+        <div><span style="font-size:11px;color:var(--text3)">Kaldıraçsız Hacim</span><br><span style="font-size:15px;font-weight:700;color:var(--amber)" id="histTotalNotional">$0</span></div>
+        <div><span style="font-size:11px;color:var(--text3)">Toplam Net PnL</span><br><span style="font-size:15px;font-weight:700" id="histTotalPnl">$0</span></div>
+        <div><span style="font-size:11px;color:var(--text3)">Ort. PnL/İşlem</span><br><span style="font-size:15px;font-weight:700" id="histAvgPnl">$0</span></div>
+        <div><span style="font-size:11px;color:var(--text3)">RL+ML İşlem</span><br><span style="font-size:15px;font-weight:700;color:var(--accent)" id="histRLML">0</span></div>
+      </div>
+    </div>
+    <div class="tab-body" id="tab-signals">
+      <div style="max-height:280px;overflow-y:auto" id="sigFeed"></div>
+    </div>
+    <div class="tab-body" id="tab-log">
+      <div class="log" id="logEl"></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="sidebar">
+
+  <div class="panel anim">
+    <div class="panel-header rl-panel-hdr">
+      <div class="panel-title"><div class="dot" style="background:var(--accent2)"></div>PPO RL Agent</div>
+      <span id="rlTrainedBadge" style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(124,58,237,0.15);color:var(--purple)">Bekleniyor</span>
+    </div>
+    <div style="padding:12px 16px">
+      <div class="metric"><span class="metric-label">Mimari</span><span class="metric-val" style="color:var(--purple);font-size:10px">Actor-Critic (PPO)</span></div>
+      <div class="metric"><span class="metric-label">Toplam Adım</span><span class="metric-val" style="color:var(--accent2)" id="rlSteps">—</span></div>
+      <div class="metric"><span class="metric-label">Ort. Ödül (son 20)</span><span class="metric-val" id="rlAvgReward">—</span></div>
+      <div class="metric"><span class="metric-label">EWC Aktif</span><span class="metric-val" id="rlEWC">—</span></div>
+      <div class="metric"><span class="metric-label">Exp Buffer</span><span class="metric-val" id="rlExpBuf">—</span></div>
+      <div class="metric"><span class="metric-label">Aksiyon</span><span class="metric-val neutral" style="font-size:9px">FLAT/L5x/L10x/S5x/S10x</span></div>
+      <div style="margin-top:8px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:10px;color:var(--text3)">RL Güven</span>
+          <span style="font-size:11px;color:var(--accent2)" id="rlConfDisp">—</span>
+        </div>
+        <div class="rl-bar"><div class="rl-fill" id="rlConfFill" style="width:0%"></div></div>
+      </div>
+      <div style="margin-top:8px;font-size:9px;color:var(--text3);text-align:center;padding:6px;background:var(--bg3);border-radius:6px;line-height:1.8">
+        State: 40 boyut &middot; GAE &middot; EWC &middot; Online<br>
+        &epsilon;=0.2 &middot; &gamma;=0.99 &middot; &lambda;=0.95 &middot; 4 epoch
+      </div>
+    </div>
+  </div>
+
+  <div class="panel anim">
+    <div class="panel-header"><div class="panel-title"><div class="dot"></div>ML Ensemble</div></div>
+    <div style="padding:12px 16px">
+      <div class="metric"><span class="metric-label">Mimari</span><span class="metric-val" style="color:var(--accent);font-size:10px" id="mArch">GBM+RF</span></div>
+      <div class="metric"><span class="metric-label">Accuracy (WF)</span><span class="metric-val up" id="mAcc">—</span></div>
+      <div class="metric"><span class="metric-label">Sharpe Ratio</span><span class="metric-val" id="mSharpe">—</span></div>
+      <div class="metric"><span class="metric-label">Tahmin Sayısı</span><span class="metric-val" id="mPred">—</span></div>
+      <div class="metric"><span class="metric-label">Feedback Buffer</span><span class="metric-val" id="mFB">—</span></div>
+      <div class="metric"><span class="metric-label">Risk/Reward</span><span class="metric-val up">1:2+ (dinamik)</span></div>
+      <div style="margin-top:8px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:10px;color:var(--text3)">Model Güveni</span>
+          <span style="font-size:11px;color:var(--accent)" id="mConf">—</span>
+        </div>
+        <div class="prog-bar"><div class="prog-fill" id="confFill" style="width:0%;background:linear-gradient(90deg,var(--accent2),var(--accent))"></div></div>
+      </div>
+      <div style="margin-top:8px;font-size:9px;color:var(--text3);text-align:center;padding:6px;background:var(--bg3);border-radius:6px;line-height:1.8">
+        36 Feature &middot; RSI &middot; MACD &middot; BB &middot; EMA &middot; ATR<br>OBV &middot; MFI &middot; VWAP &middot; Drift v2
+      </div>
+    </div>
+  </div>
+
+  <div class="panel anim">
+    <div class="panel-header">
+      <div class="panel-title"><div class="dot" style="background:var(--green)"></div>Canlı Sinyaller</div>
+      <span style="font-size:10px;color:var(--text3)">Son 6</span>
+    </div>
+    <div style="padding:6px 14px;max-height:160px;overflow-y:auto" id="liveFeed"></div>
+  </div>
+
+  <div class="panel anim">
+    <div class="panel-header"><div class="panel-title"><div class="dot" style="background:var(--amber)"></div>Bağlantı & API</div></div>
+    <div style="padding:12px 16px">
+      <div class="metric"><span class="metric-label">MEXC API</span><span class="metric-val" id="apiStatus">Kontrol ediliyor</span></div>
+      <div class="metric"><span class="metric-label">WebSocket</span><span class="metric-val" id="wsStatus">—</span></div>
+      <div class="metric"><span class="metric-label">Gerçek Veri</span><span class="metric-val up" id="realCount">—</span></div>
+      <div class="metric"><span class="metric-label">Tarama Aralığı</span><span class="metric-val neutral">30 saniye</span></div>
+      <div class="metric"><span class="metric-label">Son Tarama</span><span class="metric-val neutral" id="lastScan">—</span></div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<div class="panel anim" style="margin-bottom:14px">
+  <div class="panel-header">
+    <div class="panel-title"><div class="dot" style="background:var(--accent2)"></div>MEXC Futures Scanner
+      <span style="font-size:9px;color:var(--green);padding:2px 6px;background:rgba(16,185,129,0.1);border-radius:4px;margin-left:6px">CANLI</span>
+    </div>
+    <span style="font-size:10px;color:var(--text3)" id="scanInfo">Bekleniyor...</span>
+  </div>
+  <div class="scanner-grid" id="scanGrid"></div>
+</div>
+
+</div>
+<script>
+const API_BASE=window.location.origin;
+const WS_URL=(window.location.protocol==='https:'?'wss':'ws')+'://'+window.location.host+'/ws';
+let ws=null,pairData={},signalHistory=[],pnlTimeline=[],pnlChart=null,currentFilter='all',logs=[],reconnectTimer=null;
+
+function connect(){
+  if(ws){try{ws.close()}catch(e){}}
+  setConn('wait','Bağlanıyor...');addLog('li','WebSocket bağlanıyor...');
+  ws=new WebSocket(WS_URL);
+  ws.onopen=()=>{setConn('ok','Bağlı — Canlı Veri');document.getElementById('wsStatus').textContent='Aktif';document.getElementById('wsStatus').className='metric-val up';addLog('ls','WebSocket bağlandı');if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}};
+  ws.onmessage=(e)=>{try{const msg=JSON.parse(e.data);if(msg.data&&Array.isArray(msg.data)){processData(msg.data,msg.timestamp,msg.portfolio,msg.rl_status);}else if(msg.type==='init'&&msg.portfolio){updatePortfolioUI(msg.portfolio);}}catch(err){addLog('le','Parse hatası: '+err.message);}};
+  ws.onerror=()=>{setConn('err','Bağlantı Hatası');};
+  ws.onclose=()=>{setConn('wait','Bağlantı Kesildi');addLog('lw','WebSocket kesildi — 5s yeniden bağlanıyor');if(!reconnectTimer)reconnectTimer=setTimeout(connect,5000);pollREST();};
+}
+function reconnect(){connect();}
+
+async function pollREST(){
+  try{
+    const r=await fetch(API_BASE+'/api/scan');const d=await r.json();
+    if(d.success&&d.data){processData(d.data,new Date().toISOString());setConn('wait','REST Modu');document.getElementById('apiStatus').textContent='Aktif (REST)';document.getElementById('apiStatus').className='metric-val up';}
+  }catch(e){addLog('le','REST API hatası');document.getElementById('apiStatus').textContent='Erişilemiyor';document.getElementById('apiStatus').className='metric-val down';}
+}
+
+async function forceScan(){addLog('li','Manuel tarama...');document.getElementById('scanBtn').textContent='Taranıyor...';await pollREST();fetchStats();document.getElementById('scanBtn').textContent='Tara';}
+
+async function trainRL(){
+  addLog('li','RL eğitimi başlatıldı...');
+  try{const r=await fetch(API_BASE+'/api/train_rl',{method:'POST'});const d=await r.json();if(d.success){addLog('ls','RL eğitimi tamamlandı!');fetchStats();}}
+  catch(e){addLog('le','RL eğitim hatası: '+e.message);}
+}
+
+async function fetchStats(){
+  try{const r=await fetch(API_BASE+'/api/history');const d=await r.json();if(d.success&&d.data)renderHistory(d.data);}catch(e){}
+  try{const r=await fetch(API_BASE+'/api/stats');const d=await r.json();if(d.success&&d.data)updateStats(d.data);}catch(e){}
+  try{const r=await fetch(API_BASE+'/api/model');const d=await r.json();if(d.success&&d.data)updateModelInfo(d.data);}catch(e){}
+  try{const r=await fetch(API_BASE+'/api/rl');const d=await r.json();if(d.success&&d.data)updateRLInfo(d.data);}catch(e){}
+  try{const r=await fetch(API_BASE+'/api/backtest_all');const d=await r.json();if(d.success&&d.data&&d.data.sharpe!==undefined){const el=document.getElementById('mSharpe');if(el)el.textContent=d.data.sharpe.toFixed(2);}}catch(e){}
+}
+
+function processData(dataArr,ts,portfolioData,rlData){
+  let realCount=0;
+  dataArr.forEach(d=>{const prev=pairData[d.symbol];pairData[d.symbol]=d;if(d.data_source==='real')realCount++;if(!prev||prev.signal!==d.signal)addSignal(d);});
+  const totalPnl=dataArr.reduce((s,d)=>s+(d.pnl||0),0);
+  const now=ts?new Date(ts):new Date();
+  const timeStr=now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
+  pnlTimeline.push({t:timeStr,v:totalPnl});if(pnlTimeline.length>80)pnlTimeline.shift();
+  renderTable();renderActiveTrades(dataArr);renderScanner(dataArr);renderTicker(dataArr);updatePnlChart();
+  const activeCount=dataArr.filter(d=>d.active_pos).length;
+  document.getElementById('sPnl').textContent=(totalPnl>=0?'+':'')+'$'+totalPnl.toFixed(0);
+  document.getElementById('sPnl').className='stat-value '+(totalPnl>=0?'up':'down');
+  document.getElementById('sPos').textContent=activeCount;document.getElementById('sPairs').textContent=dataArr.length;
+  document.getElementById('realCount').textContent=realCount+'/'+dataArr.length+' pair';
+  document.getElementById('realCount').className=realCount>0?'metric-val up':'metric-val neutral';
+  const avgWin=dataArr.length>0?dataArr.reduce((s,d)=>s+(d.win_rate||0),0)/dataArr.length:0;
+  document.getElementById('sWin').textContent=avgWin.toFixed(1)+'%';
+  document.getElementById('sWin').className='stat-value '+(avgWin>60?'up':'down');
+  const t=now.toLocaleTimeString('tr-TR');
+  document.getElementById('lastScan').textContent=t;document.getElementById('lastUpdate').textContent='Güncellendi: '+t;
+  document.getElementById('scanInfo').textContent=dataArr.length+' pair — '+realCount+' gerçek';
+  document.getElementById('sDataSrc').textContent=realCount>0?'MEXC API ✓':'API bekleniyor';
+  if(portfolioData)updatePortfolioUI(portfolioData);
+  if(rlData)updateRLInfo(rlData);
+}
+
+function srcBadge(s){
+  if(s==='RL+ML')return '<span class="src-rlml">RL+ML</span>';
+  if(s==='ML_only')return '<span class="src-mlonly">ML</span>';
+  if(s==='RL_only')return '<span class="src-rlonly">RL</span>';
+  return '<span class="src-wait">—</span>';
+}
+
+function renderTable(){
+  const search=document.getElementById('searchInput').value.toLowerCase();
+  let rows=Object.values(pairData).filter(d=>(currentFilter==='all'||d.signal===currentFilter)&&d.symbol.toLowerCase().includes(search));
+  document.getElementById('agentBadge').textContent=rows.length;
+  const html=rows.map(d=>{
+    const sym=d.symbol.replace('_USDT','');
+    const priceStr=d.price<1?d.price.toFixed(5):d.price.toFixed(2);
+    const cc=d.confidence>80?'var(--green)':d.confidence>65?'var(--amber)':'var(--red)';
+    const rc=(d.rl_conf||0)>70?'var(--green)':(d.rl_conf||0)>55?'var(--amber)':'var(--text3)';
+    const tags=(d.indicators||[]).map(ind=>{
+      const c=ind.startsWith('RSI')?'tg-rsi':ind.startsWith('MACD')?'tg-macd':ind.startsWith('BB')?'tg-bb':ind.startsWith('EMA')?'tg-ema':ind.startsWith('MFI')?'tg-mfi':'tg-vol';
+      return '<span class="tag '+c+'">'+ind+'</span>';
+    }).join('');
+    return '<tr><td><span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse 2s infinite"></span></td>'+
+      '<td><div class="pair-cell"><div class="sym-icon" style="background:'+symColor(sym)+';color:#fff">'+sym[0]+'</div>'+sym+'</div></td>'+
+      '<td><span class="sig '+sigCls(d.signal)+'">'+(d.signal||'—')+'</span></td>'+
+      '<td><div class="conf-wrap"><div class="conf-bar"><div class="conf-fill" style="width:'+(d.confidence||0)+'%;background:'+cc+'"></div></div><span style="font-size:10px;color:'+cc+';min-width:26px">'+(d.confidence||0).toFixed(0)+'%</span></div></td>'+
+      '<td style="font-weight:600">$'+priceStr+'</td>'+
+      '<td class="'+(( d.pnl||0)>=0?'up':'down')+'" style="font-weight:700">'+((d.pnl||0)>=0?'+':'')+'$'+(d.pnl||0).toFixed(0)+'</td>'+
+      '<td class="'+((d.win_rate||0)>=50?'up':'down')+'">'+(d.win_rate||0).toFixed(0)+'%</td>'+
+      '<td style="color:var(--accent2)">'+(d.leverage||5)+'x</td>'+
+      '<td><span class="sig '+sigCls(d.rl_signal||'WAIT')+'">'+(d.rl_signal||'—')+'</span></td>'+
+      '<td style="color:'+rc+';font-size:11px">'+(d.rl_conf||0).toFixed(0)+'%</td>'+
+      '<td>'+srcBadge(d.hybrid_source)+'</td>'+
+      '<td><span class="sig '+sigCls(d.gbm_signal)+'" style="font-size:9px;padding:1px 4px">'+(d.gbm_signal||'—')+'</span></td>'+
+      '<td><span class="sig '+sigCls(d.rf_signal)+'" style="font-size:9px;padding:1px 4px">'+(d.rf_signal||'—')+'</span></td>'+
+      '<td>'+tags+'</td>'+
+      '<td><span class="'+(d.data_source==='real'?'src-real':'src-sim')+'">'+(d.data_source==='real'?'Gerçek':'Sim')+'</span></td>'+
+      '</tr>';
+  }).join('');
+  document.getElementById('agentBody').innerHTML=html||'<tr><td colspan="15" style="text-align:center;padding:24px;color:var(--text3)">Veri bekleniyor...</td></tr>';
+}
+
+function renderActiveTrades(dataArr){
+  const active=dataArr.filter(d=>d.active_pos);
+  const panel=document.getElementById('activeTradesPanel');
+  if(active.length===0){panel.style.display='none';return;}
+  panel.style.display='block';document.getElementById('activeBadge').textContent=active.length;
+  const html=active.map(d=>{
+    const pos=d.active_pos;const sym=d.symbol.replace('_USDT','');
+    const priceStr=d.price<1?d.price.toFixed(5):d.price.toFixed(2);
+    const entryStr=pos.entry_price<1?pos.entry_price.toFixed(5):pos.entry_price.toFixed(2);
+    const pnlVal=pos.unrealized_pnl||0;
+    const baseSz=pos.base_size||(pos.size/Math.max(1,pos.leverage||1));
+    return '<tr><td style="color:var(--text3);font-size:11px">'+((pos.timestamp||'').split(' ')[1]||'')+'</td>'+
+      '<td><div class="pair-cell"><div class="sym-icon" style="background:'+symColor(sym)+';color:#fff">'+sym[0]+'</div>'+sym+'</div></td>'+
+      '<td><span class="sig '+sigCls(pos.side)+'">'+pos.side+'</span></td>'+
+      '<td style="font-weight:600">$'+entryStr+'</td>'+
+      '<td style="font-weight:600">$'+priceStr+'</td>'+
+      '<td style="color:var(--accent2)">'+pos.leverage+'x</td>'+
+      '<td style="color:var(--text2)">$'+baseSz.toFixed(0)+'</td>'+
+      '<td class="'+(pnlVal>=0?'up':'down')+'" style="font-weight:700">'+(pnlVal>=0?'+':'')+'$'+pnlVal.toFixed(2)+'</td>'+
+      '<td>'+srcBadge(pos.hybrid_source)+'</td></tr>';
+  }).join('');
+  document.getElementById('activeBody').innerHTML=html;
+}
+
+function renderScanner(dataArr){
+  const html=dataArr.map(d=>{
+    const sym=d.symbol.replace('_USDT','');
+    const priceStr=d.price<1?d.price.toFixed(5):d.price.toFixed(2);
+    return '<div class="sc-card '+(d.data_source==='real'?'real-data':'')+'">'+
+      '<div><div class="sc-pair">'+sym+'/USDT</div><div class="sc-vol">$'+formatVol(d.volume24h||0)+' · '+(d.confidence||0).toFixed(0)+'% '+srcBadge(d.hybrid_source)+'</div></div>'+
+      '<div><div class="sc-price">$'+priceStr+'</div>'+
+      '<div class="sc-chg '+((d.change24h||0)>=0?'up':'down')+'">'+((d.change24h||0)>=0?'+':'')+(d.change24h||0).toFixed(2)+'% <span class="sig '+sigCls(d.signal)+'" style="font-size:9px;padding:1px 4px">'+d.signal+'</span></div>'+
+      '</div></div>';
+  }).join('');
+  document.getElementById('scanGrid').innerHTML=html;
+}
+
+function renderTicker(dataArr){
+  const items=dataArr.slice(0,20).map(d=>{
+    const sym=d.symbol.replace('_USDT','');
+    const priceStr=d.price<1?d.price.toFixed(4):d.price.toFixed(2);
+    return '<span class="t-item"><span class="t-sym">'+sym+'</span><span class="t-price">$'+priceStr+'</span><span class="'+((d.change24h||0)>=0?'up':'down')">'">'+((d.change24h||0)>=0?'+':'')+(d.change24h||0).toFixed(2)+'%</span></span>';
+  }).join('');
+  const el=document.getElementById('tickerEl');el.innerHTML=items+items;
+}
+
+function initChart(){
+  const ctx=document.getElementById('pnlChart').getContext('2d');
+  pnlChart=new Chart(ctx,{type:'line',data:{labels:[],datasets:[{label:'PnL',data:[],borderColor:'#00d4ff',borderWidth:2,pointRadius:0,fill:true,backgroundColor:(c)=>{const g=c.chart.ctx.createLinearGradient(0,0,0,220);g.addColorStop(0,'rgba(0,212,255,0.15)');g.addColorStop(1,'rgba(0,212,255,0)');return g;},tension:0.4}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#475569',maxTicksLimit:8,font:{size:10}},border:{display:false}},y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#475569',font:{size:10},callback:v=>'$'+v.toFixed(0)},border:{display:false}}}}});
+}
+function updatePnlChart(){if(!pnlChart)return;pnlChart.data.labels=pnlTimeline.map(p=>p.t);pnlChart.data.datasets[0].data=pnlTimeline.map(p=>p.v);pnlChart.update('none');}
+
+function addSignal(d){
+  const t=new Date().toLocaleTimeString('tr-TR');const sym=d.symbol.replace('_USDT','');
+  signalHistory.unshift({t,sym,sig:d.signal,conf:d.confidence,pnl:d.pnl,src:d.hybrid_source,rlSig:d.rl_signal});
+  if(signalHistory.length>60)signalHistory.pop();renderFeeds();
+}
+function renderFeeds(){
+  const html=signalHistory.slice(0,20).map(s=>'<div class="feed-item"><div class="feed-time">'+s.t+'</div><div><div class="feed-pair">'+s.sym+' <span class="sig '+sigCls(s.sig)+'" style="font-size:9px">'+s.sig+'</span> '+srcBadge(s.src)+'</div><div class="feed-detail">ML: '+(s.conf||0).toFixed(0)+'% · RL: '+(s.rlSig||'—')+' · PnL: <span class="'+((s.pnl||0)>=0?'up':'down')+'">'+(s.pnl||0)>=0?'+':''+'$'+(s.pnl||0).toFixed(0)+'</span></div></div></div>').join('');
+  document.getElementById('sigFeed').innerHTML=html;
+  document.getElementById('liveFeed').innerHTML=signalHistory.slice(0,5).map(s=>'<div class="feed-item"><div class="feed-time">'+s.t+'</div><div><div class="feed-pair" style="font-size:10px">'+s.sym+' <span class="sig '+sigCls(s.sig)+'" style="font-size:9px">'+s.sig+'</span></div><div class="feed-detail">'+(s.conf||0).toFixed(0)+'% · '+srcBadge(s.src)+'</div></div></div>').join('');
+}
+function addLog(cls,msg){const t='['+new Date().toLocaleTimeString('tr-TR')+']';logs.unshift({cls,msg,t});if(logs.length>100)logs.pop();document.getElementById('logEl').innerHTML=logs.slice(0,30).map(l=>'<div class="'+l.cls+'">'+l.t+' '+l.msg+'</div>').join('');}
+
+function updateModelInfo(info){
+  const acc=(info.wf_result&&info.wf_result.accuracy)?info.wf_result.accuracy:0;
+  document.getElementById('mAcc').textContent=acc+'%';document.getElementById('mAcc').className='metric-val '+(acc>60?'up':'down');
+  document.getElementById('mPred').textContent=(info.predictions_made||0).toLocaleString();
+  document.getElementById('mFB').textContent=(info.feedback_buffer||0)+' sample';
+  if(info.backtest&&info.backtest.sharpe!==undefined)document.getElementById('mSharpe').textContent=info.backtest.sharpe.toFixed(3);
+  document.getElementById('sAcc').textContent=acc+'%';
+  if(info.models)document.getElementById('mArch').textContent=info.models.map(m=>m.name+'('+m.backend+')').join(' + ');
+  const conf=Math.min(95,Math.max(55,acc));
+  document.getElementById('mConf').textContent=conf.toFixed(0)+'%';document.getElementById('confFill').style.width=conf+'%';
+  if(info.rl)updateRLInfo(info.rl);
+}
+function updateRLInfo(rl){
+  if(!rl)return;
+  const trained=rl.is_trained||rl.trained;const steps=rl.total_steps||0;
+  const avgReward=typeof rl.avg_reward==='number'?rl.avg_reward:0;
+  const expBuf=rl.exp_buffer!==undefined?rl.exp_buffer:(rl.buffer_size||0);
+  const ewc=rl.ewc_active!==undefined?rl.ewc_active:false;
+  document.getElementById('rlSteps').textContent=steps.toLocaleString();
+  document.getElementById('rlAvgReward').textContent=avgReward.toFixed(4);document.getElementById('rlAvgReward').className='metric-val '+(avgReward>=0?'up':'down');
+  document.getElementById('rlEWC').textContent=ewc?'✅ Aktif':'⭕ Pasif';document.getElementById('rlEWC').style.color=ewc?'var(--green)':'var(--text3)';
+  document.getElementById('rlExpBuf').textContent=expBuf+' trade';
+  const badge=document.getElementById('rlTrainedBadge');badge.textContent=trained?'✅ Eğitildi ('+steps+' adım)':'⏳ Bekleniyor';badge.style.color=trained?'var(--green)':'var(--amber)';
+  document.getElementById('sRLSteps').textContent=steps>0?steps.toLocaleString()+' adım':'—';
+  document.getElementById('sRLSub').textContent='Ort ödül: '+avgReward.toFixed(4)+' · Buf: '+expBuf;
+  const confVal=trained?Math.min(80,Math.max(40,50+avgReward*100)):0;
+  document.getElementById('rlConfDisp').textContent=confVal.toFixed(0)+'%';document.getElementById('rlConfFill').style.width=confVal+'%';
+}
+function updatePortfolioUI(p){
+  if(!p)return;
+  document.getElementById('sCap').textContent='$'+p.capital.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  const chg=p.capital-p.initial_capital;document.getElementById('sCap').className='stat-value '+(chg>=0?'up':'down');
+  document.getElementById('sCapSub').textContent=(chg>=0?'+':'')+'$'+chg.toFixed(2)+' Net Kar/Zarar';
+  const notional=p.total_closed_notional||0;const ct=p.total_closed_trades||0;
+  document.getElementById('sNotional').textContent='$'+formatVol(notional);
+  document.getElementById('sNotionalSub').textContent=ct+' işlem · Kaldıraçsız marjin';
+}
+function renderHistory(history){
+  const totalNotional=history.reduce((s,h)=>s+(h.notional_size||0),0);
+  const totalPnl=history.reduce((s,h)=>s+(h.pnl||0),0);
+  const avgPnl=history.length>0?totalPnl/history.length:0;
+  const rlmlCount=history.filter(h=>h.hybrid_source==='RL+ML').length;
+  document.getElementById('histTotalTrades').textContent=history.length;
+  document.getElementById('histTotalNotional').textContent='$'+totalNotional.toFixed(2);
+  document.getElementById('histRLML').textContent=rlmlCount+' / '+history.length;
+  const pnlEl=document.getElementById('histTotalPnl');pnlEl.textContent=(totalPnl>=0?'+':'')+'$'+totalPnl.toFixed(2);pnlEl.style.color=totalPnl>=0?'var(--green)':'var(--red)';
+  const avgEl=document.getElementById('histAvgPnl');avgEl.textContent=(avgPnl>=0?'+':'')+'$'+avgPnl.toFixed(2);avgEl.style.color=avgPnl>=0?'var(--green)':'var(--red)';
+  const html=history.map(h=>{
+    const sym=h.symbol.replace('_USDT','');
+    const entryStr=h.entry_price<1?h.entry_price.toFixed(6):h.entry_price.toFixed(2);
+    const exitStr=h.exit_price<1?h.exit_price.toFixed(6):h.exit_price.toFixed(2);
+    return '<tr><td style="color:var(--text3);font-size:11px">'+h.time+'</td><td style="font-weight:600">'+sym+'</td>'+
+      '<td><span class="sig '+sigCls(h.side)+'" style="font-size:9px">'+h.side+'</span></td>'+
+      '<td style="color:var(--accent2)">'+(h.leverage||1)+'x</td>'+
+      '<td style="color:var(--amber);font-weight:600">$'+(h.notional_size||0).toFixed(0)+'</td>'+
+      '<td>'+srcBadge(h.hybrid_source)+'</td>'+
+      '<td>$'+entryStr+'</td><td>$'+exitStr+'</td>'+
+      '<td style="color:var(--text3)">'+h.duration+'</td>'+
+      '<td class="'+(h.pnl>=0?'up':'down')+'" style="font-weight:700">'+(h.pnl>=0?'+':'')+'$'+h.pnl.toFixed(2)+'</td></tr>';
+  }).join('');
+  document.getElementById('historyBody').innerHTML=html||'<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text3)">Henüz tamamlanmış işlem yok.</td></tr>';
+}
+function updateStats(s){
+  if(s.win_rate!==undefined){document.getElementById('sWin').textContent=s.win_rate+'%';document.getElementById('sWin').className='stat-value '+(s.win_rate>60?'up':'down');}
+  if(s.model_accuracy){document.getElementById('sAcc').textContent=s.model_accuracy+'%';}
+  if(s.total_pnl!==undefined){document.getElementById('sPnl').textContent=(s.total_pnl>=0?'+':'')+'$'+s.total_pnl.toFixed(0);document.getElementById('sPnl').className='stat-value '+(s.total_pnl>=0?'up':'down');}
+  if(s.active_longs!==undefined){document.getElementById('sPos').textContent=s.active_longs+s.active_shorts;}
+  if(s.portfolio)updatePortfolioUI(s.portfolio);
+  if(s.total_closed_notional!==undefined){document.getElementById('sNotional').textContent='$'+formatVol(s.total_closed_notional);document.getElementById('sNotionalSub').textContent=(s.total_closed_trades||0)+' işlem · Kaldıraçsız';}
+}
+function setConn(state,text){
+  const pill=document.getElementById('connPill');if(!pill)return;
+  const dot=pill.querySelector('.pulse');pill.className='conn-pill conn-'+state;
+  if(dot)dot.className='pulse p-'+(state==='ok'?'green':state==='err'?'red':'amber');
+  document.getElementById('connText').textContent=text;
+}
+function formatVol(v){if(v>=1e9)return (v/1e9).toFixed(2)+'B';if(v>=1e6)return (v/1e6).toFixed(1)+'M';if(v>=1e3)return (v/1e3).toFixed(1)+'K';return v.toFixed(0);}
+function sigCls(s){if(s==='LONG')return 'sig-long';if(s==='SHORT')return 'sig-short';if(s==='HOLD')return 'sig-hold';return 'sig-wait';}
+function symColor(sym){const c=['#f7931a','#627eea','#f0b90b','#9945ff','#e84142','#00ab2e','#3cc3d4','#e25cc3','#0033a1','#6c4d9d'];let h=0;for(let ch of sym)h=(h*31+ch.charCodeAt(0))%c.length;return c[h];}
+function setFilter(f,el){currentFilter=f;document.querySelectorAll('.f-btn').forEach(b=>b.classList.remove('active'));el.classList.add('active');renderTable();}
+function switchTab(name,el){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.tab-body').forEach(t=>t.classList.remove('active'));el.classList.add('active');document.getElementById('tab-'+name).classList.add('active');}
+
+window.addEventListener('DOMContentLoaded',()=>{
+  initChart();addLog('li','MEXC RL+ML Trader v3.0 başlatıldı');addLog('li','Backend: '+API_BASE);
+  setTimeout(connect,500);setInterval(fetchStats,15000);fetchStats();
+});
+</script>
+</body>
+</html>
