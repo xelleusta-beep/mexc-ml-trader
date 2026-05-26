@@ -1,0 +1,1 @@
+{"agent_states": {}, "trade_history": [], "portfolio": {"capital": 100000.0, "total_fees": 0.0, "initial_capital": 100000.0, "total_closed_notional": 0.0, "total_closed_trades": 0}, "risk_state": {"peak_capital": 0.0, "current_drawdown": 0.0, "consecutive_losses": 0, "daily_pnl": 0.0, "daily_reset_time": 1779658376.2956424}, "timestamp": "2026-05-24T22:00:50.757259"}
