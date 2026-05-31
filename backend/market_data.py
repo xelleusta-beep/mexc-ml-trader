@@ -62,6 +62,10 @@ class FundingRateAnalyzer:
                     self._cache[cache_key] = funding_rate
                     self._cache[f"{cache_key}_time"] = time.time()
                     return funding_rate
+            elif r.status_code == 403:
+                logger.debug(f"Funding rate 403: {symbol} - API erisim engellendi")
+            elif r.status_code == 429:
+                logger.debug(f"Funding rate 429: {symbol} - Rate limit")
         except Exception as e:
             logger.debug(f"Funding rate API hatası ({symbol}): {e}")
 
@@ -304,14 +308,23 @@ class CrossAssetAnalyzer:
             return 0.0
 
         # Getiri hesapla
-        returns_a = np.diff(prices_a) / (np.array(prices_a[:-1]) + 1e-10)
-        returns_b = np.diff(prices_b) / (np.array(prices_b[:-1]) + 1e-10)
+        arr_a = np.array(prices_a, dtype=np.float64)
+        arr_b = np.array(prices_b, dtype=np.float64)
+
+        if len(arr_a) < 2 or len(arr_b) < 2:
+            return 0.0
+
+        returns_a = np.diff(arr_a) / (arr_a[:-1] + 1e-10)
+        returns_b = np.diff(arr_b) / (arr_b[:-1] + 1e-10)
 
         # Korelasyon
         if len(returns_a) < 5 or len(returns_b) < 5:
             return 0.0
 
         min_len = min(len(returns_a), len(returns_b))
+        if min_len < 2:
+            return 0.0
+
         corr = np.corrcoef(returns_a[-min_len:], returns_b[-min_len:])[0, 1]
 
         if np.isnan(corr):
@@ -341,15 +354,26 @@ class CrossAssetAnalyzer:
                 "eth_relative_strength": 0,
             }
 
+        # Diziye cevir
+        btc_arr = np.array(btc_prices[-20:], dtype=np.float64)
+        eth_arr = np.array(eth_prices[-20:], dtype=np.float64)
+
         # Korelasyon
         correlation = self.calculate_correlation("BTC_USDT", "ETH_USDT")
 
         # ETH/BTC ratio
-        eth_btc_ratio = eth_prices[-1] / (btc_prices[-1] + 1e-10)
+        if btc_arr[-1] > 0:
+            eth_btc_ratio = eth_arr[-1] / btc_arr[-1]
+        else:
+            eth_btc_ratio = 0.0
 
         # BTC trendi
-        btc_returns = np.diff(btc_prices[-20:]) / (np.array(btc_prices[-21:-1]) + 1e-10)
-        btc_trend_strength = float(np.mean(btc_returns))
+        btc_returns = np.diff(btc_arr) / (btc_arr[:-1] + 1e-10)
+        if len(btc_returns) > 0:
+            btc_trend_strength = float(np.mean(btc_returns))
+        else:
+            btc_trend_strength = 0.0
+
         if btc_trend_strength > 0.001:
             btc_trend = "up"
         elif btc_trend_strength < -0.001:
@@ -358,8 +382,12 @@ class CrossAssetAnalyzer:
             btc_trend = "sideways"
 
         # ETH goreceli gucu
-        eth_returns = np.diff(eth_prices[-20:]) / (np.array(eth_prices[-21:-1]) + 1e-10)
-        eth_strength = float(np.mean(eth_returns))
+        eth_returns = np.diff(eth_arr) / (eth_arr[:-1] + 1e-10)
+        if len(eth_returns) > 0:
+            eth_strength = float(np.mean(eth_returns))
+        else:
+            eth_strength = 0.0
+
         eth_relative_strength = eth_strength - btc_trend_strength
 
         return {
