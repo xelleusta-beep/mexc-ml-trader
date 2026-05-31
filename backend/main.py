@@ -40,6 +40,7 @@ from monitor   import MetricsTracker, Timer
 from backtester import backtest_simple, portfolio_backtest, SlippageConfig, FeeConfig
 from cache     import FeatureCache, AsyncBatchProcessor, get_http_client, close_http_client, timed
 from orderbook import AdvancedOrderBook, MultiTimeframeConfirmation, DynamicSLTP
+from market_data import MarketDataEnrichment
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -150,6 +151,9 @@ metrics_tracker    = MetricsTracker()
 advanced_orderbook = AdvancedOrderBook()
 mtf_confirmation   = MultiTimeframeConfirmation()
 dynamic_sltp       = DynamicSLTP()
+
+# ── New Modules (Week 3-4) ─────────────────────────────────────────────────
+market_data_enrichment = MarketDataEnrichment()
 
 active_connections: List[WebSocket] = []
 scanner_cache:  dict = {}
@@ -946,6 +950,20 @@ async def process_pair(client, symbol: str) -> dict:
         except Exception as e:
             logger.debug(f"MTF onay hatası: {e}")
 
+    # Market Data Enrichment — Funding, Fear&Greed, Cross-Asset
+    market_modifier = 0.0
+    try:
+        market_data = await market_data_enrichment.get_all_market_data(symbol)
+        market_modifier = market_data.get("total_signal_modifier", 0)
+        # Funding rateSHORT lehineyse ve sinyal LONG'sa dikkatli ol
+        funding_signal = market_data.get("funding", {}).get("signal", "neutral")
+        if funding_signal == "short_bias" and main_sig == "LONG":
+            conf_val *= 0.85  # Funding SHORT lehine → LONG guveni dus
+        elif funding_signal == "long_bias" and main_sig == "SHORT":
+            conf_val *= 0.85  # Funding LONG lehine → SHORT guveni dus
+    except Exception as e:
+        logger.debug(f"Market data enrichment hatası: {e}")
+
     # Sinyal uyumu: RL+ML hemfikir veya ML tek başına yeterli güvenli
     # FIX: Daha katı giriş — GBM ve RF MUTLAKA hemfikir olmalı
     gbm_rf_agree = (gbm_sig == rf_sig == main_sig)
@@ -956,8 +974,8 @@ async def process_pair(client, symbol: str) -> dict:
         (gbm_rf_agree and conf_val >= config.trading.min_confidence_gbm_rf)
     )
 
-    # Guven guncellemesi (MTF boost)
-    conf_val = min(99.0, conf_val + mtf_boost * 100)
+    # Guven guncellemesi (MTF boost + Market data modifier)
+    conf_val = min(99.0, conf_val + mtf_boost * 100 + market_modifier * 50)
 
     can_enter = (
         st["active_pos"] is None and
