@@ -618,7 +618,7 @@ class RegimeFeatures:
         if len(c) < window:
             return 0.0
 
-        returns = np.diff(c[-window - 1:]) / (c[-window:-1] + 1e-10)
+        returns = np.diff(c[-window - 1:]) / (c[-window:] + 1e-10)
 
         if len(returns) < 5:
             return 0.0
