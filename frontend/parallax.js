@@ -1,253 +1,225 @@
 /**
- * WebGL Parallax Background — MEXC Trading System
- * Profesyonel partikul sistemi + derinlik katmanlari
- * Mouse hareketine tepki veren interaktif arka plan
+ * Sci-Fi WebGL Background — MEXC Trading System v2
+ * Bilim-kurgu temali partikul agi + parallax + glow efektleri
  */
 (function(){
   const canvas = document.createElement('canvas');
-  canvas.id = 'parallax-canvas';
-  canvas.style.cssText = 'position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0.85';
+  canvas.id = 'webgl-bg';
+  canvas.style.cssText = 'position:fixed;inset:0;z-index:0;width:100%;height:100%;pointer-events:none';
   document.body.prepend(canvas);
 
-  const gl = canvas.getContext('webgl', {alpha:true, antialias:true, premultipliedAlpha:false});
-  if(!gl){console.warn('WebGL not supported');return;}
+  const gl = canvas.getContext('webgl',{alpha:true,antialias:true,premultipliedAlpha:false});
+  if(!gl){console.warn('WebGL yok');return;}
 
-  let W = 0, H = 0, mouseX = 0.5, mouseY = 0.5;
-  let time = 0;
+  let W=0,H=0,mx=0.5,my=0.5,t=0;
+  const resize=()=>{W=canvas.width=innerWidth;H=canvas.height=innerHeight;gl.viewport(0,0,W,H);init()};
+  addEventListener('resize',resize);
+  addEventListener('mousemove',e=>{mx=e.clientX/W;my=e.clientY/H});
 
-  function resize(){
-    W = canvas.width = window.innerWidth;
-    H = canvas.height = window.innerHeight;
-    gl.viewport(0, 0, W, H);
-    initParticles();
-  }
-
-  window.addEventListener('resize', resize);
-  document.addEventListener('mousemove', e=>{
-    mouseX = e.clientX / W;
-    mouseY = e.clientY / H;
-  });
-
-  // ── Shader Sources ──────────────────────────────────────────────────────
-  const vsSource = `
+  // ── Particle Shader ──────────────────────────────────────────────────
+  const pVS=`
     attribute vec2 aPos;
     attribute float aSize;
-    attribute float aLayer;
+    attribute float aDepth;
     attribute float aPhase;
     uniform float uTime;
     uniform vec2 uMouse;
     uniform vec2 uRes;
     varying float vAlpha;
-    varying float vLayer;
     varying float vPhase;
+    varying float vDepth;
     void main(){
-      float depth = aLayer;
-      float parallaxX = (uMouse.x - 0.5) * depth * 60.0;
-      float parallaxY = (uMouse.y - 0.5) * depth * 40.0;
-      float sway = sin(uTime * 0.3 + aPhase * 6.28) * 8.0 * depth;
-      float drift = cos(uTime * 0.2 + aPhase * 3.14) * 5.0 * depth;
-      vec2 pos = aPos + vec2(parallaxX + sway, parallaxY + drift);
-      pos = pos / uRes * 2.0 - 1.0;
-      pos.y *= -1.0;
-      gl_Position = vec4(pos, 0.0, 1.0);
-      gl_PointSize = aSize * (1.0 + depth * 0.5);
-      vAlpha = 0.25 + depth * 0.35;
-      vLayer = depth;
-      vPhase = aPhase;
+      float d=aDepth;
+      vec2 parallax=(uMouse-0.5)*d*80.0;
+      float sway=sin(uTime*0.4+aPhase*6.283)*12.0*d;
+      float drift=cos(uTime*0.3+aPhase*3.141)*8.0*d;
+      vec2 p=aPos+vec2(parallax.x+sway,parallax.y+drift);
+      p=p/uRes*2.0-1.0;
+      p.y*=-1.0;
+      gl_Position=vec4(p,0.0,1.0);
+      gl_PointSize=aSize*(1.0+d*0.8);
+      vAlpha=0.3+d*0.5;
+      vPhase=aPhase;
+      vDepth=d;
     }
   `;
-
-  const fsSource = `
+  const pFS=`
     precision mediump float;
     varying float vAlpha;
-    varying float vLayer;
     varying float vPhase;
+    varying float vDepth;
     uniform float uTime;
     void main(){
-      vec2 pc = gl_PointCoord * 2.0 - 1.0;
-      float d = length(pc);
-      if(d > 1.0) discard;
-      float glow = exp(-d * 2.5);
-      vec3 color1 = vec3(0.0, 0.83, 1.0);
-      vec3 color2 = vec3(0.486, 0.227, 0.929);
-      vec3 color = mix(color1, color2, vPhase);
-      float pulse = 0.7 + 0.3 * sin(uTime * 0.5 + vPhase * 6.28);
-      gl_FragColor = vec4(color, glow * vAlpha * pulse);
+      vec2 pc=gl_PointCoord*2.0-1.0;
+      float dist=length(pc);
+      if(dist>1.0)discard;
+      float glow=exp(-dist*2.0);
+      vec3 c1=vec3(0.0,0.83,1.0);
+      vec3 c2=vec3(0.486,0.227,0.929);
+      vec3 c3=vec3(0.0,1.0,0.5);
+      float t2=sin(uTime*0.2)*0.5+0.5;
+      vec3 col=mix(mix(c1,c2,vPhase),c3,t2*0.3);
+      float pulse=0.6+0.4*sin(uTime*0.6+vPhase*6.283);
+      gl_FragColor=vec4(col,glow*vAlpha*pulse);
     }
   `;
 
-  // ── Compile & Link ──────────────────────────────────────────────────────
-  function compileShader(src, type){
-    const s = gl.createShader(type);
-    gl.shaderSource(s, src);
-    gl.compileShader(s);
-    if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
-      console.error(gl.getShaderInfoLog(s));
-      return null;
+  // ── Line Shader ──────────────────────────────────────────────────────
+  const lVS=`
+    attribute vec2 aPos;
+    uniform vec2 uRes;
+    uniform vec2 uMouse;
+    uniform float uTime;
+    varying float vAlpha;
+    void main(){
+      vec2 parallax=(uMouse-0.5)*20.0;
+      vec2 p=(aPos+parallax)/uRes*2.0-1.0;
+      p.y*=-1.0;
+      gl_Position=vec4(p,0.0,1.0);
+      vAlpha=0.08+0.04*sin(uTime*0.5);
     }
+  `;
+  const lFS=`
+    precision mediump float;
+    varying float vAlpha;
+    void main(){
+      gl_FragColor=vec4(0.0,0.6,1.0,vAlpha);
+    }
+  `;
+
+  function compile(src,type){
+    const s=gl.createShader(type);
+    gl.shaderSource(s,src);
+    gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null}
     return s;
   }
 
-  const vs = compileShader(vsSource, gl.VERTEX_SHADER);
-  const fs = compileShader(fsSource, gl.FRAGMENT_SHADER);
-  if(!vs || !fs) return;
-
-  const prog = gl.createProgram();
-  gl.attachShader(prog, vs);
-  gl.attachShader(prog, fs);
-  gl.linkProgram(prog);
-  if(!gl.getProgramParameter(prog, gl.LINK_STATUS)){
-    console.error(gl.getProgramInfoLog(prog));
-    return;
+  function link(vs,fs){
+    const p=gl.createProgram();
+    gl.attachShader(p,vs);
+    gl.attachShader(p,fs);
+    gl.linkProgram(p);
+    if(!gl.getProgramParameter(p,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(p));return null}
+    return p;
   }
-  gl.useProgram(prog);
 
-  // ── Attributes & Uniforms ───────────────────────────────────────────────
-  const aPos   = gl.getAttribLocation(prog, 'aPos');
-  const aSize  = gl.getAttribLocation(prog, 'aSize');
-  const aLayer = gl.getAttribLocation(prog, 'aLayer');
-  const aPhase = gl.getAttribLocation(prog, 'aPhase');
-  const uTime  = gl.getUniformLocation(prog, 'uTime');
-  const uMouse = gl.getUniformLocation(prog, 'uMouse');
-  const uRes   = gl.getUniformLocation(prog, 'uRes');
+  let pProg,lProg;
+  let pBuf,sBuf,dBuf,phBuf,lBuf;
+  let N=0;
 
-  let posBuf, sizeBuf, layerBuf, phaseBuf, N;
+  function init(){
+    // Particle program
+    const pvs=compile(pVS,gl.VERTEX_SHADER);
+    const pfs=compile(pFS,gl.FRAGMENT_SHADER);
+    pProg=link(pvs,pfs);
 
-  function initParticles(){
-    const layers = [
-      {count: 150, sizeMin: 2.0, sizeMax: 4.0, layerMin: 0.1, layerMax: 0.3},
-      {count: 100,  sizeMin: 2.5, sizeMax: 5.5, layerMin: 0.3, layerMax: 0.6},
-      {count: 50,  sizeMin: 4.0, sizeMax: 8.0, layerMin: 0.6, layerMax: 1.0},
+    // Line program
+    const lvs=compile(lVS,gl.VERTEX_SHADER);
+    const lfs=compile(lFS,gl.FRAGMENT_SHADER);
+    lProg=link(lvs,lfs);
+
+    // Particles — 3 katman
+    const layers=[
+      {n:200,sMin:1.5,sMax:3.5,dMin:0.05,dMax:0.25},
+      {n:120,sMin:2.5,sMax:5.0,dMin:0.25,dMax:0.55},
+      {n:60,sMin:4.0,sMax:8.0,dMin:0.55,dMax:1.0},
     ];
 
-    let allPos = [], allSize = [], allLayer = [], allPhase = [];
+    let allP=[],allS=[],allD=[],allPh=[];
     layers.forEach(l=>{
-      for(let i=0; i<l.count; i++){
-        allPos.push(Math.random() * W, Math.random() * H);
-        allSize.push(l.sizeMin + Math.random() * (l.sizeMax - l.sizeMin));
-        allLayer.push(l.layerMin + Math.random() * (l.layerMax - l.layerMin));
-        allPhase.push(Math.random());
+      for(let i=0;i<l.n;i++){
+        allP.push(Math.random()*W,Math.random()*H);
+        allS.push(l.sMin+Math.random()*(l.sMax-l.sMin));
+        allD.push(l.dMin+Math.random()*(l.dMax-l.dMin));
+        allPh.push(Math.random());
       }
     });
+    N=allP.length/2;
 
-    N = allPos.length / 2;
-
-    function makeBuf(data, loc){
-      const buf = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
-      return buf;
+    function mkBuf(data){
+      const b=gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER,b);
+      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.STATIC_DRAW);
+      return b;
     }
 
-    if(posBuf) gl.deleteBuffer(posBuf);
-    if(sizeBuf) gl.deleteBuffer(sizeBuf);
-    if(layerBuf) gl.deleteBuffer(layerBuf);
-    if(phaseBuf) gl.deleteBuffer(phaseBuf);
+    if(pBuf)gl.deleteBuffer(pBuf);
+    if(sBuf)gl.deleteBuffer(sBuf);
+    if(dBuf)gl.deleteBuffer(dBuf);
+    if(phBuf)gl.deleteBuffer(phBuf);
 
-    posBuf   = makeBuf(allPos, aPos);
-    sizeBuf  = makeBuf(allSize, aSize);
-    layerBuf = makeBuf(allLayer, aLayer);
-    phaseBuf = makeBuf(allPhase, aPhase);
+    pBuf=mkBuf(allP);
+    sBuf=mkBuf(allS);
+    dBuf=mkBuf(allD);
+    phBuf=mkBuf(allPh);
+
+    // Grid lines
+    const grid=[];
+    const step=80;
+    for(let x=0;x<=W+step;x+=step){grid.push(x,0,x,H)}
+    for(let y=0;y<=H+step;y+=step){grid.push(0,y,W,y)}
+    if(lBuf)gl.deleteBuffer(lBuf);
+    lBuf=mkBuf(grid);
   }
 
-  // ── Grid Lines (secondary layer) ────────────────────────────────────────
-  const gridVS = `
-    attribute vec2 aPos;
-    uniform vec2 uRes;
-    uniform float uTime;
-    uniform vec2 uMouse;
-    varying float vAlpha;
-    void main(){
-      float parallaxX = (uMouse.x - 0.5) * 15.0;
-      float parallaxY = (uMouse.y - 0.5) * 10.0;
-      vec2 p = aPos + vec2(parallaxX, parallaxY);
-      p = p / uRes * 2.0 - 1.0;
-      p.y *= -1.0;
-      gl_Position = vec4(p, 0.0, 1.0);
-      vAlpha = 0.06;
-    }
-  `;
-  const gridFS = `
-    precision mediump float;
-    varying float vAlpha;
-    void main(){ gl_FragColor = vec4(0.39, 0.7, 0.93, vAlpha); }
-  `;
-
-  let gridProg;
-  let gridBuf;
-  try{
-    const gvs = compileShader(gridVS, gl.VERTEX_SHADER);
-    const gfs = compileShader(gridFS, gl.FRAGMENT_SHADER);
-    gridProg = gl.createProgram();
-    gl.attachShader(gridProg, gvs);
-    gl.attachShader(gridProg, gfs);
-    gl.linkProgram(gridProg);
-    if(!gl.getProgramParameter(gridProg, gl.LINK_STATUS)) gridProg = null;
-  }catch(e){gridProg=null;}
-
-  function initGrid(){
-    if(!gridProg) return;
-    const step = 60;
-    const verts = [];
-    for(let x=0; x<=W+step; x+=step){ verts.push(x,0, x,H); }
-    for(let y=0; y<=H+step; y+=step){ verts.push(0,y, W,y); }
-    if(gridBuf) gl.deleteBuffer(gridBuf);
-    gridBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, gridBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
-  }
-
-  // ── Render Loop ─────────────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────────────
   gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
 
-  function render(){
-    time += 0.016;
-    gl.clearColor(0, 0, 0, 0);
+  function frame(){
+    t+=0.016;
+    gl.clearColor(0.02,0.03,0.06,1);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     // Grid
-    if(gridProg && gridBuf){
-      gl.useProgram(gridProg);
-      const gPos = gl.getAttribLocation(gridProg, 'aPos');
-      gl.bindBuffer(gl.ARRAY_BUFFER, gridBuf);
-      gl.enableVertexAttribArray(gPos);
-      gl.vertexAttribPointer(gPos, 2, gl.FLOAT, false, 0, 0);
-      gl.uniform2f(gl.getUniformLocation(gridProg, 'uRes'), W, H);
-      gl.uniform1f(gl.getUniformLocation(gridProg, 'uTime'), time);
-      gl.uniform2f(gl.getUniformLocation(gridProg, 'uMouse'), mouseX, mouseY);
-      const vCount = gl.getBufferParameter(gridBuf, gl.ARRAY_BUFFER) / 8;
-      gl.drawArrays(gl.LINES, 0, vCount);
+    if(lProg&&lBuf){
+      gl.useProgram(lProg);
+      const aPos=gl.getAttribLocation(lProg,'aPos');
+      gl.bindBuffer(gl.ARRAY_BUFFER,lBuf);
+      gl.enableVertexAttribArray(aPos);
+      gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+      gl.uniform2f(gl.getUniformLocation(lProg,'uRes'),W,H);
+      gl.uniform2f(gl.getUniformLocation(lProg,'uMouse'),mx,my);
+      gl.uniform1f(gl.getUniformLocation(lProg,'uTime'),t);
+      const n=gl.getBufferParameter(lBuf,gl.ARRAY_BUFFER)/8;
+      gl.drawArrays(gl.LINES,0,n);
     }
 
     // Particles
-    gl.useProgram(prog);
-    gl.uniform1f(uTime, time);
-    gl.uniform2f(uMouse, mouseX, mouseY);
-    gl.uniform2f(uRes, W, H);
+    if(pProg&&pBuf){
+      gl.useProgram(pProg);
+      gl.uniform1f(gl.getUniformLocation(pProg,'uTime'),t);
+      gl.uniform2f(gl.getUniformLocation(pProg,'uMouse'),mx,my);
+      gl.uniform2f(gl.getUniformLocation(pProg,'uRes'),W,H);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
-    gl.enableVertexAttribArray(aPos);
-    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+      const aPos=gl.getAttribLocation(pProg,'aPos');
+      const aSize=gl.getAttribLocation(pProg,'aSize');
+      const aDepth=gl.getAttribLocation(pProg,'aDepth');
+      const aPhase=gl.getAttribLocation(pProg,'aPhase');
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf);
-    gl.enableVertexAttribArray(aSize);
-    gl.vertexAttribPointer(aSize, 1, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER,pBuf);
+      gl.enableVertexAttribArray(aPos);
+      gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, layerBuf);
-    gl.enableVertexAttribArray(aLayer);
-    gl.vertexAttribPointer(aLayer, 1, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER,sBuf);
+      gl.enableVertexAttribArray(aSize);
+      gl.vertexAttribPointer(aSize,1,gl.FLOAT,false,0,0);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, phaseBuf);
-    gl.enableVertexAttribArray(aPhase);
-    gl.vertexAttribPointer(aPhase, 1, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER,dBuf);
+      gl.enableVertexAttribArray(aDepth);
+      gl.vertexAttribPointer(aDepth,1,gl.FLOAT,false,0,0);
 
-    gl.drawArrays(gl.POINTS, 0, N);
+      gl.bindBuffer(gl.ARRAY_BUFFER,phBuf);
+      gl.enableVertexAttribArray(aPhase);
+      gl.vertexAttribPointer(aPhase,1,gl.FLOAT,false,0,0);
 
-    requestAnimationFrame(render);
+      gl.drawArrays(gl.POINTS,0,N);
+    }
+
+    requestAnimationFrame(frame);
   }
 
   resize();
-  initGrid();
-  render();
+  frame();
 })();
