@@ -944,7 +944,12 @@ async function trainAll() {
   btn.textContent = 'Egitiliyor...'; btn.disabled = true;
   try {
     const r = await fetch(API+'/api/train_all',{method:'POST',...authH()});
-    const d = await r.json();
+    const text = await r.text();
+    let d;
+    try { d = JSON.parse(text); } catch(e) {
+      alert('Sunucu hatası: '+(text.substring(0,100)||'Yanıt alınamadı'));
+      return;
+    }
     if(d.success) { await loadAll(); }
     else { alert('Hata: '+(d.error||'--')); }
   } catch(e) { alert('Hata: '+e.message); }
@@ -957,7 +962,12 @@ async function trainRL() {
   btn.textContent = 'Egitiliyor...'; btn.disabled = true;
   try {
     const r = await fetch(API+'/api/train_rl',{method:'POST',...authH()});
-    const d = await r.json();
+    const text = await r.text();
+    let d;
+    try { d = JSON.parse(text); } catch(e) {
+      alert('Sunucu hatası: '+(text.substring(0,100)||'Yanıt alınamadı'));
+      return;
+    }
     if(d.success) { await loadRL(); }
     else { alert('Hata: '+(d.error||'--')); }
   } catch(e) { alert('Hata: '+e.message); }

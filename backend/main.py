@@ -1319,43 +1319,55 @@ async def get_trade_history():
 @app.post("/api/train_rl")
 async def train_rl():
     """Manuel RL eğitimi tetikle."""
-    klines_list = list(_klines_cache.values())[:10]
-    if not klines_list: return {"success":False,"error":"Cache boş"}
-    result = await asyncio.to_thread(_rl_pretrain, klines_list)
-    return {"success":True,"data":rl_agent.get_info()}
+    try:
+        klines_list = list(_klines_cache.values())[:10]
+        if not klines_list: return {"success":False,"error":"Cache boş"}
+        result = await asyncio.to_thread(_rl_pretrain, klines_list)
+        return {"success":True,"data":rl_agent.get_info()}
+    except Exception as e:
+        logger.error(f"RL train hatası: {e}")
+        return {"success":False,"error":str(e)}
 
 @app.post("/api/train/{symbol}")
 async def trigger_training(symbol: str):
-    sym = symbol.upper().replace("-","_")
-    client = await get_http_client()
-    if client is None:
-        return {"success":False,"error":"HTTPX istemcisi kullanılamıyor"}
-    klines = await fetch_klines(client, sym, limit=300)
-    if not klines: return {"success":False,"error":"MEXC kline verisi alınamadı"}
-    result = await asyncio.to_thread(ml_engine.train, klines, sym, True)
-    if result.get("success"):
-        await asyncio.to_thread(ml_engine.save, ML_MODEL_FILE)
-        ml_engine._retrain_triggers["manual"] += 1
-    return {"success":True,"data":result}
+    try:
+        sym = symbol.upper().replace("-","_")
+        client = await get_http_client()
+        if client is None:
+            return {"success":False,"error":"HTTPX istemcisi kullanılamıyor"}
+        klines = await fetch_klines(client, sym, limit=300)
+        if not klines: return {"success":False,"error":"MEXC kline verisi alınamadı"}
+        result = await asyncio.to_thread(ml_engine.train, klines, sym, True)
+        if result.get("success"):
+            await asyncio.to_thread(ml_engine.save, ML_MODEL_FILE)
+            ml_engine._retrain_triggers["manual"] += 1
+        return {"success":True,"data":result}
+    except Exception as e:
+        logger.error(f"Train {symbol} hatası: {e}")
+        return {"success":False,"error":str(e)}
 
 @app.post("/api/train_all")
 async def train_all():
-    klines_list = []
-    client = await get_http_client()
-    if client is None:
-        return {"success":False,"error":"HTTPX istemcisi kullanılamıyor"}
-    for sym in FUTURES_PAIRS[:20]:
-        kl = await fetch_klines(client, sym, limit=300)
-        if kl: klines_list.append(kl)
-    if not klines_list: return {"success":False,"error":"Veri alınamadı"}
-    ml_result = await asyncio.to_thread(
-        ml_engine.train_on_multi_pair, klines_list, "MANUAL_ALL")
-    if ml_result.get("success"):
-        await asyncio.to_thread(ml_engine.save, ML_MODEL_FILE)
-        ml_engine._retrain_triggers["manual"] += 1
-        # RL'i de güncelle
-        await asyncio.to_thread(_rl_pretrain, klines_list[:5])
-    return {"success":True,"data":ml_result}
+    try:
+        klines_list = []
+        client = await get_http_client()
+        if client is None:
+            return {"success":False,"error":"HTTPX istemcisi kullanılamıyor"}
+        for sym in FUTURES_PAIRS[:20]:
+            kl = await fetch_klines(client, sym, limit=300)
+            if kl: klines_list.append(kl)
+        if not klines_list: return {"success":False,"error":"Veri alınamadı"}
+        ml_result = await asyncio.to_thread(
+            ml_engine.train_on_multi_pair, klines_list, "MANUAL_ALL")
+        if ml_result.get("success"):
+            await asyncio.to_thread(ml_engine.save, ML_MODEL_FILE)
+            ml_engine._retrain_triggers["manual"] += 1
+            # RL'i de güncelle
+            await asyncio.to_thread(_rl_pretrain, klines_list[:5])
+        return {"success":True,"data":ml_result}
+    except Exception as e:
+        logger.error(f"Train all hatası: {e}")
+        return {"success":False,"error":str(e)}
 
 @app.get("/api/backtest_all")
 async def run_backtest_all():
