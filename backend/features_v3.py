@@ -20,6 +20,9 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+# Numpy uyarilarini sustur
+np.seterr(all='ignore')
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MULTI-TIMEFRAME FEATURES

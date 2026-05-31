@@ -19,6 +19,9 @@ from collections import deque
 
 logger = logging.getLogger(__name__)
 
+# Numpy uyarilarini sustur (empty slice, divide by zero)
+np.seterr(all='ignore')
+
 
 class FundingRateAnalyzer:
     """
