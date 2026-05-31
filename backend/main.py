@@ -41,6 +41,7 @@ from backtester import backtest_simple, portfolio_backtest, SlippageConfig, FeeC
 from cache     import FeatureCache, AsyncBatchProcessor, get_http_client, close_http_client, timed
 from orderbook import AdvancedOrderBook, MultiTimeframeConfirmation, DynamicSLTP
 from market_data import MarketDataEnrichment
+from enhanced_ensemble import EnhancedEnsembleEngine, DynamicModelWeighter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
