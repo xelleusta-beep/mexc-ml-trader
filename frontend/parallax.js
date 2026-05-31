@@ -6,7 +6,7 @@
 (function(){
   const canvas = document.createElement('canvas');
   canvas.id = 'parallax-canvas';
-  canvas.style.cssText = 'position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0.6';
+  canvas.style.cssText = 'position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0.85';
   document.body.prepend(canvas);
 
   const gl = canvas.getContext('webgl', {alpha:true, antialias:true, premultipliedAlpha:false});
@@ -51,7 +51,7 @@
       pos.y *= -1.0;
       gl_Position = vec4(pos, 0.0, 1.0);
       gl_PointSize = aSize * (1.0 + depth * 0.5);
-      vAlpha = 0.15 + depth * 0.25;
+      vAlpha = 0.25 + depth * 0.35;
       vLayer = depth;
       vPhase = aPhase;
     }
@@ -115,9 +115,9 @@
 
   function initParticles(){
     const layers = [
-      {count: 120, sizeMin: 1.5, sizeMax: 3.0, layerMin: 0.1, layerMax: 0.3},
-      {count: 80,  sizeMin: 2.0, sizeMax: 4.5, layerMin: 0.3, layerMax: 0.6},
-      {count: 40,  sizeMin: 3.0, sizeMax: 6.0, layerMin: 0.6, layerMax: 1.0},
+      {count: 150, sizeMin: 2.0, sizeMax: 4.0, layerMin: 0.1, layerMax: 0.3},
+      {count: 100,  sizeMin: 2.5, sizeMax: 5.5, layerMin: 0.3, layerMax: 0.6},
+      {count: 50,  sizeMin: 4.0, sizeMax: 8.0, layerMin: 0.6, layerMax: 1.0},
     ];
 
     let allPos = [], allSize = [], allLayer = [], allPhase = [];
@@ -164,7 +164,7 @@
       p = p / uRes * 2.0 - 1.0;
       p.y *= -1.0;
       gl_Position = vec4(p, 0.0, 1.0);
-      vAlpha = 0.035;
+      vAlpha = 0.06;
     }
   `;
   const gridFS = `

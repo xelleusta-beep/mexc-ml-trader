@@ -123,7 +123,7 @@ html,body{min-height:100%;font-family:var(--font-std);font-size:14px;background:
 .glass{background:rgba(26,32,53,0.7);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(99,179,237,0.15)}
 .glow-line{height:1px;background:linear-gradient(90deg,transparent,var(--accent),var(--accent2),transparent);margin:12px 0;opacity:0.4}
 .hover-lift{transition:transform 0.3s,box-shadow 0.3s}.hover-lift:hover{transform:translateY(-2px);box-shadow:0 8px 25px rgba(0,212,255,0.15)}
-#parallax-canvas{opacity:0.5}
+#parallax-canvas{opacity:0.9}
 .hero-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase}
 .hero-badge-ml{background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.3);color:var(--accent)}
 .hero-badge-rl{background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.3);color:var(--purple)}
@@ -351,24 +351,66 @@ html,body{min-height:100%;font-family:var(--font-std);font-size:14px;background:
 <div class="tab-page" id="tab-features">
 <div class="grid2">
 <div class="panel">
-<div class="panel-hdr"><div class="panel-title"><div class="dot"></div>36 Feature Seti</div></div>
+<div class="panel-hdr"><div class="panel-title"><div class="dot"></div>Feature Seti (V3 — 116 ozellik)</div></div>
 <div class="panel-body">
 <div style="margin-bottom:10px">
-<span class="tag tg-rsi">RSI-14</span><span class="tag tg-rsi">RSI-7</span><span class="tag tg-rsi">StochRSI K</span><span class="tag tg-rsi">StochRSI D</span>
+<span style="font-size:10px;font-weight:700;color:var(--accent);margin-bottom:6px;display:block">Multi-Timeframe (24)</span>
+<span class="tag tg-rsi">RSI Trend 15m</span><span class="tag tg-rsi">RSI Trend 1h</span><span class="tag tg-rsi">RSI Trend 4h</span><span class="tag tg-rsi">RSI Trend 1d</span>
+<span class="tag tg-macd">MACD Div 15m</span><span class="tag tg-macd">MACD Div 1h</span><span class="tag tg-macd">MACD Div 4h</span><span class="tag tg-macd">MACD Div 1d</span>
+<span class="tag tg-bb">Fiyat/EMA 15m</span><span class="tag tg-bb">Fiyat/EMA 1h</span><span class="tag tg-bb">Fiyat/EMA 4h</span><span class="tag tg-bb">Fiyat/EMA 1d</span>
+<span class="tag tg-ema">ATR% 15m</span><span class="tag tg-ema">ATR% 1h</span><span class="tag tg-ema">ATR% 4h</span><span class="tag tg-ema">ATR% 1d</span>
+<span class="tag tg-vol">Vol Trend 15m</span><span class="tag tg-vol">Vol Trend 1h</span><span class="tag tg-vol">Vol Trend 4h</span><span class="tag tg-vol">Vol Trend 1d</span>
+<span class="tag tg-atr">Fiyat Poz 15m</span><span class="tag tg-atr">Fiyat Poz 1h</span><span class="tag tg-atr">Fiyat Poz 4h</span><span class="tag tg-atr">Fiyat Poz 1d</span>
+</div>
+<div style="margin-bottom:10px">
+<span style="font-size:10px;font-weight:700;color:var(--purple);margin-bottom:6px;display:block">Microstructure (6)</span>
+<span class="tag" style="background:rgba(124,58,237,0.2);color:var(--purple)">OB Imbalance</span>
+<span class="tag" style="background:rgba(124,58,237,0.2);color:var(--purple)">Trade Toxicity</span>
+<span class="tag" style="background:rgba(124,58,237,0.2);color:var(--purple)">Impl Shortfall</span>
+<span class="tag" style="background:rgba(124,58,237,0.2);color:var(--purple)">Amihud Illiq</span>
+<span class="tag" style="background:rgba(124,58,237,0.2);color:var(--purple)">Kyle Lambda</span>
+<span class="tag" style="background:rgba(124,58,237,0.2);color:var(--purple)">Spread Proxy</span>
+</div>
+<div style="margin-bottom:10px">
+<span style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:6px;display:block">Cross-Asset (8)</span>
+<span class="tag tg-macd">BTC Dominance</span><span class="tag tg-macd">ETH/BTC Ratio</span>
+<span class="tag tg-macd">BTC Vol Regime</span><span class="tag tg-macd">Market Cap Chg</span>
+<span class="tag tg-macd">Stablecoin Flow</span><span class="tag tg-macd">Funding Rate</span>
+<span class="tag tg-macd">OI Change</span><span class="tag tg-macd">Long/Short Ratio</span>
+</div>
+<div style="margin-bottom:10px">
+<span style="font-size:10px;font-weight:700;color:var(--amber);margin-bottom:6px;display:block">Regime (8)</span>
+<span class="tag tg-bb">Market Phase</span><span class="tag tg-bb">Vol Regime</span>
+<span class="tag tg-bb">Trend Strength</span><span class="tag tg-bb">Momentum Regime</span>
+<span class="tag tg-bb">Price Velocity</span><span class="tag tg-bb">Price Accel</span>
+<span class="tag tg-bb">Range Expansion</span><span class="tag tg-bb">Volume Profile</span>
+</div>
+<div style="margin-bottom:10px">
+<span style="font-size:10px;font-weight:700;color:var(--accent);margin-bottom:6px;display:block">Sentiment (6)</span>
+<span class="tag tg-ema">Fear & Greed</span><span class="tag tg-ema">Social Sentiment</span>
+<span class="tag tg-ema">Whale Activity</span><span class="tag tg-ema">News Sentiment</span>
+<span class="tag tg-ema">Dev Activity</span><span class="tag tg-ema">Community Score</span>
+</div>
+<div style="margin-bottom:10px">
+<span style="font-size:10px;font-weight:700;color:#93c5fd;margin-bottom:6px;display:block">V2 Base (64)</span>
+<span class="tag tg-rsi">RSI-14</span><span class="tag tg-rsi">StochRSI</span><span class="tag tg-rsi">MFI</span><span class="tag tg-rsi">Williams%R</span>
 <span class="tag tg-macd">MACD</span><span class="tag tg-macd">MACD Signal</span><span class="tag tg-macd">MACD Hist</span>
 <span class="tag tg-bb">BB %B</span><span class="tag tg-bb">BB Width</span>
-<span class="tag tg-ema">EMA 9/21</span><span class="tag tg-ema">EMA 21/50</span><span class="tag tg-ema">EMA 9 Dist</span>
-<span class="tag tg-atr">ATR Norm</span><span class="tag tg-atr">ADX</span><span class="tag tg-atr">+DI</span><span class="tag tg-atr">-DI</span>
-<span class="tag tg-vol">Vol Ratio</span><span class="tag tg-vol">OBV</span><span class="tag tg-vol">MFI</span><span class="tag tg-vol">VWAP Dist</span>
-<span class="tag tg-rsi">Williams %R</span><span class="tag tg-bb">CCI</span>
-<span class="tag tg-macd">ROC-5</span><span class="tag tg-macd">ROC-10</span>
-<span class="tag tg-atr">Mom-10</span><span class="tag tg-ema">Price Chg 1/3/5</span>
-<span class="tag tg-vol">H/L Ratio</span><span class="tag tg-atr">Vol 10/20</span>
-<span class="tag tg-vol">Vol Spike</span>
-<span class="tag tg-rsi">Candle Body</span><span class="tag tg-rsi">Upper Shadow</span><span class="tag tg-rsi">Lower Shadow</span>
-<span class="tag tg-macd">Trend Strength</span>
+<span class="tag tg-ema">EMA 9/21</span><span class="tag tg-ema">EMA 21/50</span><span class="tag tg-ema">EMA Dist</span>
+<span class="tag tg-atr">ATR</span><span class="tag tg-atr">ADX</span>
+<span class="tag tg-vol">Vol Ratio</span><span class="tag tg-vol">OBV</span><span class="tag tg-vol">VWAP</span>
+<span class="tag tg-rsi">Lag Ret 1/2/3</span><span class="tag tg-rsi">Roll Ret 5/10/20</span>
+<span class="tag tg-macd">Roll Vol 5/20</span><span class="tag tg-macd">Price Pos H/L</span>
+<span class="tag tg-bb">Mom Acc</span><span class="tag tg-bb">Candle Body</span>
+<span class="tag tg-ema">Upper/Lower Wick</span><span class="tag tg-ema">Momentum Slope</span>
+<span class="tag tg-atr">RSI Divergence</span><span class="tag tg-atr">MACD Hist Mom</span>
+<span class="tag tg-vol">KAMA</span><span class="tag tg-vol">Efficient Ratio</span>
+<span class="tag tg-rsi">VPT</span><span class="tag tg-rsi">CVD</span>
+<span class="tag tg-macd">Pivot Distance</span><span class="tag tg-macd">Hour Sin/Cos</span>
+<span class="tag tg-bb">Day Sin/Cos</span><span class="tag tg-bb">Session</span>
+<span class="tag tg-ema">Kurtosis</span><span class="tag tg-ema">Entropy</span>
 </div>
-<div class="info-box info-blue">Tüm featureler &minus;1 / 1 normalize. NaN &rarr; 0.</div>
+<div class="info-box info-blue">V3 feature'lar aktif. Toplam <b>116 ozellik</b> kullaniliyor. Multi-Timeframe + Microstructure + Cross-Asset + Regime + Sentiment.</div>
 </div>
 </div>
 <div>
@@ -377,18 +419,19 @@ html,body{min-height:100%;font-family:var(--font-std);font-size:14px;background:
 <div class="panel-body"><div class="chart-wrap"><canvas id="fiChart"></canvas></div></div>
 </div>
 <div class="panel">
-<div class="panel-hdr"><div class="panel-title"><div class="dot"></div>RL State Uzayı (40 boyut)</div></div>
+<div class="panel-hdr"><div class="panel-title"><div class="dot"></div>RL State Uzay (120 boyut — V3)</div></div>
 <div class="panel-body">
 <div style="margin-bottom:10px">
-<span class="tag" style="background:rgba(124,58,237,0.2);color:var(--purple)">36 ML Feature</span>
+<span class="tag" style="background:rgba(124,58,237,0.2);color:var(--purple)">116 ML Feature</span>
 <span class="tag" style="background:rgba(16,185,129,0.15);color:var(--green)">Pozisyon Tipi</span>
 <span class="tag" style="background:rgba(245,158,11,0.15);color:var(--amber)">Unrealized PnL</span>
-<span class="tag" style="background:rgba(0,212,255,0.12);color:var(--accent)">Pozisyon Yaşı</span>
+<span class="tag" style="background:rgba(0,212,255,0.12);color:var(--accent)">Pozisyon Yasi</span>
 <span class="tag" style="background:rgba(239,68,68,0.12);color:#f87171">Max Drawdown</span>
 </div>
-<div class="info-box info-purple">RL agent 36 feature + 4 pozisyon durumu görür. Entry/exit + boyutlandırma kararlarını alır.</div>
+<div class="info-box info-purple">RL agent V3 ile <b>116 feature + 4 pozisyon durumu = 120 boyutlu</b> state gorur. LSTM + Attention ile islenir.</div>
 <div style="margin-top:12px">
-<div class="metric"><span class="ml">Boyut</span><span class="mv purple">40</span></div>
+<div class="metric"><span class="ml">Boyut</span><span class="mv purple">120</span></div>
+<div class="metric"><span class="ml">Mimari</span><span class="mv purple">LSTM + Multi-Head Attention</span></div>
 <div class="metric"><span class="ml">Normalizasyon</span><span class="mv neutral">(-1, 1)</span></div>
 </div>
 </div>
@@ -451,6 +494,7 @@ html,body{min-height:100%;font-family:var(--font-std);font-size:14px;background:
 <div class="panel">
 <div class="panel-hdr"><div class="panel-title"><div class="dot"></div>Ayarlar</div></div>
 <div class="panel-body">
+<div class="metric"><span class="ml">Symbol</span><span class="mv"><select id="btSymbol" style="background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:4px;padding:2px 6px;font-size:11px"><option>BTC_USDT</option><option>ETH_USDT</option><option>SOL_USDT</option><option>BNB_USDT</option><option>XRP_USDT</option></select></span></div>
 <div class="metric"><span class="ml">Stop Loss</span><span class="mv"><input id="btSL" type="range" min="0.5" max="5" step="0.1" value="2.2" style="width:80px;vertical-align:middle"> <span id="btSLVal" class="neutral">2.2%</span></span></div>
 <div class="metric"><span class="ml">Take Profit</span><span class="mv"><input id="btTP" type="range" min="1" max="10" step="0.5" value="5" style="width:80px;vertical-align:middle"> <span id="btTPVal" class="neutral">5.0%</span></span></div>
 <div class="metric"><span class="ml">Kaldıraç</span><span class="mv"><select id="btLev" style="background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:4px;padding:2px 6px;font-size:11px"><option>1</option><option selected>3</option><option>5</option><option>10</option></select>x</span></div>
@@ -777,14 +821,16 @@ function updateBTChart(equity) {
 }
 
 async function runCustomBacktest() {
-  const btn = document.querySelector('.btn-primary');
+  const btn = document.querySelector('#tab-backtest .btn-primary');
+  if(!btn) return;
   btn.textContent = 'Calisiyor...'; btn.disabled = true;
   try {
     const sl = parseFloat(document.getElementById('btSL').value)/100;
     const tp = parseFloat(document.getElementById('btTP').value)/100;
     const lev = parseInt(document.getElementById('btLev').value);
     const bars = parseInt(document.getElementById('btMaxBars').value);
-    const r = await fetch(API+'/api/backtest/run?sl_pct='+sl+'&tp_pct='+tp+'&leverage='+lev+'&max_bars_hold='+bars);
+    const sym = document.getElementById('btSymbol') ? document.getElementById('btSymbol').value : 'BTC_USDT';
+    const r = await fetch(API+'/api/backtest/run?symbol='+encodeURIComponent(sym)+'&sl_pct='+sl+'&tp_pct='+tp+'&leverage='+lev+'&max_bars_hold='+bars);
     const d = await r.json();
     if(d.success && d.data) {
       document.getElementById('btSharpe').textContent = (d.data.sharpe||0).toFixed(2);

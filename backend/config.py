@@ -119,7 +119,7 @@ class MLConfig:
     feature_corr_threshold: float = _env("FEATURE_CORR_THRESHOLD", 0.85)
 
     # Feature Engineering v3
-    use_v3_features: bool = _env("USE_V3_FEATURES", False)
+    use_v3_features: bool = _env("USE_V3_FEATURES", True)
     v3_use_mtf: bool = _env("V3_USE_MTF", True)           # Multi-Timeframe
     v3_use_micro: bool = _env("V3_USE_MICRO", True)        # Microstructure
     v3_use_cross: bool = _env("V3_USE_CROSS", True)        # Cross-Asset
@@ -169,7 +169,7 @@ class RLConfig:
     rl_pretrain_iterations: int = _env("RL_PRETRAIN_ITERATIONS", 100)
 
     # V2 Settings
-    use_v2_agent: bool = _env("USE_V2_AGENT", False)
+    use_v2_agent: bool = _env("USE_V2_AGENT", True)
     v2_use_lstm: bool = _env("V2_USE_LSTM", True)
     v2_use_attention: bool = _env("V2_USE_ATTENTION", True)
     v2_lstm_hidden: int = _env("V2_LSTM_HIDDEN", 64)

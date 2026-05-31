@@ -72,6 +72,24 @@ RL_MODEL_FILE    = config.rl_model_file
 # ── DEPLOY VERSİYON KAYDI ────────────────────────────────────────────────────
 DEPLOY_CHANGELOG = [
     {
+        "version": "v4.0",
+        "date": "2026-05-31",
+        "title": "V3 Features + V2 RL Agent + WebGL Parallax",
+        "changes": [
+            "Feature Engineering V3 aktif: 116 ozellik (Multi-Timeframe + Microstructure + Cross-Asset + Regime + Sentiment)",
+            "RL Agent V2 aktif: LSTM + Multi-Head Attention + Multi-Task Actor (Entry/Exit/Size)",
+            "WebGL parallax arka plan eklendi (partikul sistemi + derinlik katmanlari)",
+            "Backtest bolumu duzeltildi: Symbol secici eklendi, calisiyor",
+            "Features bolumu guncellendi: V3 feature detaylari tam gorunur",
+            "Glassmorphism efektleri eklendi (.glass, .glow-line, .hover-lift)",
+            "Risk Manager V2: Dynamic sizing + Portfolio risk + Adaptive drawdown",
+            "Data Feeds: Sentiment + Order Book + Cross-Exchange verileri",
+            "Monitor V2: Prometheus metrics + Alert rules",
+            "Backtester V2: Event-driven + Monte Carlo + Walk-Forward optimization",
+        ],
+        "metrics": {"features": "116", "rl_architecture": "LSTM+Attention", "webgl": "active"}
+    },
+    {
         "version": "v3.6",
         "date": "2026-05-20",
         "title": "Kritik Düzeltmeler: Zaman Aşımı İptali + SL/TP + Win Rate",
@@ -82,10 +100,6 @@ DEPLOY_CHANGELOG = [
             "Min hacim filtresi 50M→100M (daha likit pairler)",
             "RL online update trigger 40→20 trade",
             "RL ödül sinyali güçlendirildi (/10→/5)",
-            "Label threshold düşürüldü (daha dengeli LONG/SHORT)",
-            "Feedback threshold 200→100 (daha hızlı öğrenme)",
-            "Multi-pair backtest (daha gerçekçi metrik)",
-            "Lookahead 5→3 bar (5x kaldıraç için uygun)",
         ],
         "metrics": {"win_rate_target": "50%+", "rr_ratio": "3:1"}
     },
@@ -102,60 +116,6 @@ DEPLOY_CHANGELOG = [
             "Max açık pozisyon 15→20",
         ],
         "metrics": {"wf_target": "40%+", "win_rate_target": "55%+"}
-    },
-    {
-        "version": "v3.4",
-        "date": "2026-05-14",
-        "title": "RL Canlıya Alındı + Backtest Düzeltme",
-        "changes": [
-            "RL conf normalizasyonu: uniform baseline'a göre 50-99 arası",
-            "ML_only conf çarpanı 0.7→0.85",
-            "signals_agree eşiği %65→%57",
-            "Backtest: 8-bar SL/TP simülasyonu eklendi",
-            "profit_factor backtest'e eklendi",
-            "Version WF/Sharpe kayıt sorunu düzeltildi",
-        ],
-        "metrics": {"rl_buffer": "45 trade", "win_rate": "62.4%"}
-    },
-    {
-        "version": "v3.3",
-        "date": "2026-05-12",
-        "title": "RL Ödül ve Conf Düzeltmeleri",
-        "changes": [
-            "FLAT cezası 0.02→0.005 (-4.0 ödül sorunu çözüldü)",
-            "Episode length 200→100",
-            "Reward clipping asimetrik (-1, +3)",
-            "RL iterasyon 30→100",
-            "Conf threshold %55→%52",
-        ],
-        "metrics": {"rl_reward_before": "-4.0", "rl_reward_after": "-1.0"}
-    },
-    {
-        "version": "v3.2",
-        "date": "2026-05-11",
-        "title": "Bağlantı Düzeltmeleri + RL Konfig",
-        "changes": [
-            "renderTicker JS syntax hatası düzeltildi (tüm butonlar çalışmıyordu)",
-            "WebSocket yeniden bağlanma sayacı eklendi",
-            "Health check + AbortSignal.timeout",
-            "Render uyku modu uyarısı eklendi",
-            "RL entropy 0.01→0.05 (daha fazla keşif)",
-        ],
-        "metrics": {}
-    },
-    {
-        "version": "v3.1",
-        "date": "2026-05-10",
-        "title": "RL+ML Hibrit Sistem İlk Deploy",
-        "changes": [
-            "PPO Agent (NumPy tabanlı) entegre edildi",
-            "Hibrit karar: RL+ML / ML_only / RL_only",
-            "EWC (Elastic Weight Consolidation) — felaket unutma önleme",
-            "Online fine-tuning her 50 trade sonrası",
-            "index.html: RL kolonları eklendi (RL Sig, RL Güv, Kaynak)",
-            "ml_details.html: 7 sekme ile tam detay sayfası",
-        ],
-        "metrics": {}
     },
 ]
 
