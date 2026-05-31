@@ -1321,8 +1321,10 @@ class MLEngine:
 
     def get_feature_importance(self, top_k: int = 20):
         imp   = self.gbm.get_feature_importance()
-        # V2 names from feature builder
-        if self._use_v2_features and self._fb_v2:
+        # V2/V3 names from feature builder
+        if self._use_v3_features and self._fb_v3:
+            names = self._feature_names
+        elif self._use_v2_features and hasattr(self, '_fb_v2') and self._fb_v2:
             names = self._feature_names
         else:
             names = ["RSI","StochRSI","MFI","Williams_R","MACD_line","MACD_sig","MACD_hist",
