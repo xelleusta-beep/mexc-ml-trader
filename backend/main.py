@@ -39,6 +39,7 @@ from persistence import StateStore
 from monitor   import MetricsTracker, Timer
 from backtester import backtest_simple, portfolio_backtest, SlippageConfig, FeeConfig
 from cache     import FeatureCache, AsyncBatchProcessor, get_http_client, close_http_client, timed
+from orderbook import AdvancedOrderBook, MultiTimeframeConfirmation, DynamicSLTP
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -144,6 +145,11 @@ rl_agent           = PPOAgent(
 rl_experience      = OnlineExperienceBuffer()
 risk_mgr           = RiskManager(config)
 metrics_tracker    = MetricsTracker()
+
+# ── New Modules (Week 1-2) ─────────────────────────────────────────────────
+advanced_orderbook = AdvancedOrderBook()
+mtf_confirmation   = MultiTimeframeConfirmation()
+dynamic_sltp       = DynamicSLTP()
 
 active_connections: List[WebSocket] = []
 scanner_cache:  dict = {}
@@ -889,21 +895,32 @@ async def process_pair(client, symbol: str) -> dict:
     # ── HİBRİT TAHMİN ────────────────────────────────────────────────────────
     prediction = hybrid_predict(symbol, klines, price, st)
 
-    # Dinamik SL/TP
+    # Dinamik SL/TP — ATR bazlı
     lev = max(1, prediction.get("leverage", 5))
     wf_acc_now = ml_engine._wf.get("accuracy", 0)
     if wf_acc_now < 65 and lev > 5:
         lev = 5
 
-    # Asimetrik SL/TP — config'den leverage bazinda
-    sl_tp = config.trading.sl_tp_levels.get(lev) or \
-            config.trading.sl_tp_levels.get(5) or (0.018, 0.054)
-    sl_pct, tp_pct = sl_tp
-
-    if prediction["signal"] == "SHORT":
-        sl = round(price * (1 + sl_pct), 10); tp = round(price * (1 - tp_pct), 10)
+    # ATR bazlı dinamik SL/TP
+    if klines is not None and len(klines.get("close", [])) > 20:
+        sl_tp_result = dynamic_sltp.calculate_dynamic_sl_tp(
+            klines, price, prediction["signal"], leverage=lev
+        )
+        sl = sl_tp_result["sl_price"]
+        tp = sl_tp_result["tp_price"]
+        sl_pct = sl_tp_result["sl_pct"]
+        tp_pct = sl_tp_result["tp_pct"]
     else:
-        sl = round(price * (1 - sl_pct), 10); tp = round(price * (1 + tp_pct), 10)
+        # Fallback: sabit SL/TP
+        sl_tp = config.trading.sl_tp_levels.get(lev) or \
+                config.trading.sl_tp_levels.get(5) or (0.018, 0.054)
+        sl_pct, tp_pct = sl_tp
+        if prediction["signal"] == "SHORT":
+            sl = round(price * (1 + sl_pct), 10)
+            tp = round(price * (1 - tp_pct), 10)
+        else:
+            sl = round(price * (1 - sl_pct), 10)
+            tp = round(price * (1 + tp_pct), 10)
 
     # ── GİRİŞ KONTROLÜ ───────────────────────────────────────────────────────
     gbm_sig  = prediction.get("gbm_signal", "WAIT")
@@ -912,6 +929,22 @@ async def process_pair(client, symbol: str) -> dict:
     main_sig = prediction["signal"]
     conf_val = prediction.get("confidence", 0)
     source   = prediction.get("hybrid_source", "ML_only")
+
+    # Multi-Timeframe Onay
+    mtf_boost = 0.0
+    if main_sig in ("LONG", "SHORT") and klines is not None:
+        try:
+            # 1h ve 4h klines icin cache'den al veya basitce 15m'yi kullan
+            klines_1h = _klines_cache.get(symbol, klines)  # Fallback: 15m
+            klines_4h = _klines_cache.get(symbol, klines)  # Fallback: 15m
+            mtf_result = mtf_confirmation.confirm_signal(
+                main_sig, klines, klines_1h, klines_4h
+            )
+            mtf_boost = mtf_result.get("confidence_boost", 0)
+            if not mtf_result["confirmed"]:
+                conf_val *= 0.7  # Onaysiz sinyal → guven dususu
+        except Exception as e:
+            logger.debug(f"MTF onay hatası: {e}")
 
     # Sinyal uyumu: RL+ML hemfikir veya ML tek başına yeterli güvenli
     # FIX: Daha katı giriş — GBM ve RF MUTLAKA hemfikir olmalı
@@ -922,6 +955,9 @@ async def process_pair(client, symbol: str) -> dict:
         (source == "RL_only" and conf_val >= config.trading.min_confidence_rl_only) or
         (gbm_rf_agree and conf_val >= config.trading.min_confidence_gbm_rf)
     )
+
+    # Guven guncellemesi (MTF boost)
+    conf_val = min(99.0, conf_val + mtf_boost * 100)
 
     can_enter = (
         st["active_pos"] is None and
@@ -1019,6 +1055,42 @@ async def process_pair(client, symbol: str) -> dict:
             else:
                 if price <= pos["tp"]:   close_pos = True; exit_reason = "🎯 TAKE PROFIT"
                 elif price >= pos["sl"]: close_pos = True; exit_reason = "🛑 STOP LOSS"
+
+            # Trailing Stop — Kar kilitleme
+            if not close_pos and klines is not None:
+                try:
+                    atr_val = dynamic_sltp.calculate_atr(klines)
+                    if atr_val > 0:
+                        # En yuksek/dusuk fiyat guncelle
+                        if "highest_since_entry" not in pos:
+                            pos["highest_since_entry"] = price
+                        if "lowest_since_entry" not in pos:
+                            pos["lowest_since_entry"] = price
+
+                        if side == "LONG":
+                            pos["highest_since_entry"] = max(pos["highest_since_entry"], price)
+                            profit_pct = (price - entry_p) / entry_p
+                            if profit_pct > 0.025:  # %2.5 kardan sonra trailing baslar
+                                trailing_stop = dynamic_sltp.calculate_trailing_stop(
+                                    entry_p, price, pos["highest_since_entry"],
+                                    side, atr_val, trailing_pct=0.5
+                                )
+                                if trailing_stop > pos["sl"]:
+                                    pos["sl"] = trailing_stop
+                                    logger.info(f"[TRAILING] {symbol} SL guncellendi: {trailing_stop:.6f}")
+                        else:
+                            pos["lowest_since_entry"] = min(pos["lowest_since_entry"], price)
+                            profit_pct = (entry_p - price) / entry_p
+                            if profit_pct > 0.025:
+                                trailing_stop = dynamic_sltp.calculate_trailing_stop(
+                                    entry_p, price, pos["lowest_since_entry"],
+                                    side, atr_val, trailing_pct=0.5
+                                )
+                                if trailing_stop < pos["sl"]:
+                                    pos["sl"] = trailing_stop
+                                    logger.info(f"[TRAILING] {symbol} SL guncellendi: {trailing_stop:.6f}")
+                except Exception as e:
+                    logger.debug(f"Trailing stop hatası: {e}")
 
             pos_age_h = (datetime.now(timezone.utc) - pos["entry_time_raw"]).total_seconds() / 3600
             # DEVRE DIŞI: Zaman aşımı kapatma iptal edildi
