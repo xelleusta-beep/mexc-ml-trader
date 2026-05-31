@@ -365,7 +365,7 @@ class MicrostructureFeatures:
 
         # 4. Amihud illiquidity
         if len(c) > 21:
-            returns = np.diff(c[-21:]) / (c[-22:-1] + 1e-10)
+            returns = np.diff(c[-21:]) / (c[-21:-1] + 1e-10)
         else:
             returns = np.diff(c) / (c[:-1] + 1e-10) if len(c) > 1 else np.zeros(1)
         amihud = cls.amihud_illiquidity(returns, v)
