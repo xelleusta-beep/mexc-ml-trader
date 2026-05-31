@@ -42,6 +42,7 @@ from cache     import FeatureCache, AsyncBatchProcessor, get_http_client, close_
 from orderbook import AdvancedOrderBook, MultiTimeframeConfirmation, DynamicSLTP
 from market_data import MarketDataEnrichment
 from enhanced_ensemble import EnhancedEnsembleEngine, DynamicModelWeighter
+from enhanced_rl import EnhancedPPOAgent, ImprovedRewardFunction
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
