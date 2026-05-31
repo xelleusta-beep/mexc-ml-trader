@@ -1520,6 +1520,66 @@ async def run_custom_backtest(symbol: str = "", sl_pct: float = 0.022,
         },
     }}
 
+@app.get("/api/backtest/monte_carlo")
+async def run_monte_carlo(n_simulations: int = 1000):
+    """Monte Carlo simülasyonu calistir."""
+    bt = ml_engine._bt
+    trades = bt.get("trades", []) if isinstance(bt, dict) else []
+
+    if not trades:
+        # Scanner'dan trade listesi olustur
+        for sym, data in list(scanner_cache.items())[:20]:
+            sig = data.get("signal", "").upper()
+            if sig in ("LONG", "SHORT"):
+                pnl = data.get("pnl", 0)
+                trades.append({"pnl": pnl})
+
+    if not trades:
+        return {"success": False, "error": "Trade verisi yok"}
+
+    mc = MonteCarloSimulator(n_simulations=n_simulations)
+    result = mc.simulate(trades)
+
+    return {"success": True, "data": result}
+
+@app.get("/api/backtest/walk_forward")
+async def run_walk_forward():
+    """Walk-forward optimizasyon sonuclari."""
+    wf_result = ml_engine._wf
+    if not wf_result:
+        return {"success": False, "error": "WF sonucu yok"}
+
+    return {"success": True, "data": {
+        "accuracy": wf_result.get("accuracy", 0),
+        "f1": wf_result.get("f1", 0),
+        "n_samples": wf_result.get("n_samples", 0),
+        "n_folds": wf_result.get("n_folds", 0),
+        "fold_accuracies": wf_result.get("fold_accuracies", []),
+    }}
+
+@app.get("/api/paper_trading")
+async def get_paper_trading_status():
+    """Paper trading durumu."""
+    active_positions = sum(1 for st in agent_states.values() if st.get("active_pos"))
+    total_trades = sum(st.get("trades", 0) for st in agent_states.values())
+    total_wins = sum(st.get("wins", 0) for st in agent_states.values())
+    total_pnl = sum(st.get("pnl", 0) for st in agent_states.values())
+
+    win_rate = (total_wins / total_trades * 100) if total_trades > 0 else 0
+
+    return {"success": True, "data": {
+        "status": "ACTIVE",
+        "mode": "PAPER_TRADING",
+        "active_positions": active_positions,
+        "total_trades": total_trades,
+        "total_wins": total_wins,
+        "win_rate": round(win_rate, 1),
+        "total_pnl": round(total_pnl, 2),
+        "portfolio_capital": portfolio.get("capital", 0),
+        "initial_capital": portfolio.get("initial_capital", 0),
+        "note": "Gerçek emir acılmıyor — sadece sinyal uretimi",
+    }}
+
 @app.get("/api/pair/{symbol}")
 async def get_pair(symbol: str):
     sym = symbol.upper().replace("-","_")
