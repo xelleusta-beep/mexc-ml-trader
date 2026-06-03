@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: mexc-ml-scalper
+    runtime: python
+    pythonVersion: "3.11"
+    region: frankfurt
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PERSIST_DIR
+        value: /var/data
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: SCANNER_INTERVAL_SEC
+        value: "60"
+      - key: KLINE_LIMIT
+        value: "100"
+    disk:
+      name: scalper-data
+      mountPath: /var/data
+      sizeGB: 1

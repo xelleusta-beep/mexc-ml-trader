@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MEXC Scalper</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e0e0e0;font-family:system-ui,sans-serif;padding:20px}
+h1{font-size:1.5rem;margin-bottom:20px;color:#00ff88}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px}
+.card{background:#141420;border-radius:12px;padding:16px;border:1px solid #222}
+.card .label{font-size:.8rem;color:#888;margin-bottom:4px}
+.card .value{font-size:1.3rem;font-weight:600}
+.green{color:#00ff88}
+.red{color:#ff4466}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid #1a1a2a}
+th{color:#888;font-weight:500;position:sticky;top:0;background:#141420}
+.status-ok{color:#00ff88}
+.status-wait{color:#888}
+.loading{text-align:center;padding:40px;color:#888}
+</style>
+</head>
+<body>
+<h1>MEXC Scalper Bot</h1>
+<div class="grid" id="stats"></div>
+<div id="loading" class="loading">Yukleniyor...</div>
+<div id="content" style="display:none">
+  <h2 style="margin-bottom:12px">Pair'ler</h2>
+  <div style="overflow-x:auto"><table><thead><tr>
+    <th>Pair</th><th>Fiyat</th><th>Sinyal</th><th>Pozisyon</th><th>PnL</th><th>Trade</th><th>WR</th>
+  </tr></thead><tbody id="pairs-body"></tbody></table></div>
+  <h2 style="margin:20px 0 12px">Son Trade'ler</h2>
+  <div style="overflow-x:auto"><table><thead><tr>
+    <th>Pair</th><th>Yon</th><th>Giris</th><th>Cikis</th><th>PnL</th><th>Sebep</th><th>Zaman</th>
+  </tr></thead><tbody id="history-body"></tbody></table></div>
+</div>
+<script>
+async function fetchJSON(url){const r=await fetch(url);return r.json()}
+async function update(){
+  try{
+    const status=await fetchJSON('/api/status');
+    const positions=await fetchJSON('/api/positions');
+    const history=await fetchJSON('/api/history');
+    const pairs=await fetchJSON('/api/pairs');
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+
+    document.getElementById('stats').innerHTML=`
+      <div class="card"><div class="label">Kasa</div><div class="value ${status.capital>=5000?'green':'red'}">$${status.capital.toFixed(2)}</div></div>
+      <div class="card"><div class="label">PnL</div><div class="value ${status.pnl>=0?'green':'red'}">$${status.pnl.toFixed(2)}</div></div>
+      <div class="card"><div class="label">Aktif Pozisyon</div><div class="value">${status.active_positions}</div></div>
+      <div class="card"><div class="label">Toplam Trade</div><div class="value">${status.total_trades}</div></div>
+      <div class="card"><div class="label">Win Rate</div><div class="value green">${status.win_rate}%</div></div>
+      <div class="card"><div class="label">Taranan Pair</div><div class="value">${status.scanned}/${status.pairs}</div></div>
+    `;
+    document.getElementById('pairs-body').innerHTML=pairs.pairs.slice(0,30).map(p=>`
+      <tr>
+        <td>${p.symbol}</td>
+        <td>${p.price.toFixed(6)}</td>
+        <td class="${p.signal==='LONG'?'green':p.signal==='SHORT'?'red':'status-wait'}">${p.signal}</td>
+        <td>${p.active?'Aktif':'--'}</td>
+        <td class="${p.pnl>=0?'green':'red'}">$${p.pnl.toFixed(2)}</td>
+        <td>${p.trades}</td>
+        <td>${p.trades>0?(p.wins/p.trades*100).toFixed(0):'--'}%</td>
+      </tr>
+    `).join('');
+    document.getElementById('history-body').innerHTML=history.trades.slice(-30).reverse().map(t=>`
+      <tr>
+        <td>${t.symbol}</td>
+        <td class="${t.side==='LONG'?'green':'red'}">${t.side}</td>
+        <td>${t.entry.toFixed(6)}</td>
+        <td>${t.exit.toFixed(6)}</td>
+        <td class="${t.pnl>=0?'green':'red'}">$${t.pnl.toFixed(2)}</td>
+        <td>${t.reason}</td>
+        <td>${new Date(t.time).toLocaleString('tr-TR')}</td>
+      </tr>
+    `).join('');
+  }catch(e){console.error(e)}
+}
+update();
+setInterval(update,5000);
+</script>
+</body>
+</html>
