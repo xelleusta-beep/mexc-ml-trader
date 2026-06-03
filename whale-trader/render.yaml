@@ -13,8 +13,9 @@ services:
       - key: WEB_CONCURRENCY
         value: "1"
       # ETHEREUM API KEY (etherscan.io ucretsiz)
+      # Etherscan API key (etherscan.io ucretsiz)
       - key: ETHERSCAN_KEY
-        value: "J75REUKRVKVZ5IQFR6TVDENE5MDN8P86PU"
+        value: ""
       # TELEGRAM (opsiyonel)
       - key: TELEGRAM_BOT_TOKEN
         value: ""
