@@ -12,6 +12,7 @@ v3.0 YENİLİKLER:
 """
 
 import asyncio
+import gc
 import json
 import time
 import logging
@@ -159,6 +160,7 @@ market_data_enrichment = MarketDataEnrichment()
 
 active_connections: List[WebSocket] = []
 scanner_cache:  dict = {}
+MAX_SCANNER_CACHE = 100
 agent_states:   dict = {}
 trade_history        = deque(maxlen=200)
 _pnl_timeline: list  = []
@@ -171,6 +173,7 @@ portfolio = {
 }
 FUTURES_PAIRS: List[str] = []
 _klines_cache: dict = {}
+MAX_KLINES_CACHE = 100  # Render free tier OOM önleme: max 100 pair
 MAX_OPEN_POSITIONS = config.trading.max_open_positions
 MIN_VOLUME_24H     = config.trading.min_volume_24h
 MIN_PRICE          = config.trading.min_price
@@ -447,7 +450,7 @@ def hybrid_predict(symbol: str, klines: Optional[dict],
 def _run_initial_training():
     """Senkron başlangıç eğitimi — scanner döngüsünden veya auto_train'dan çağrılır."""
     klines_list = []
-    targets = (FUTURES_PAIRS or [])[:20]
+    targets = (FUTURES_PAIRS or [])[:10]
     if not targets:
         targets = ["BTC_USDT","ETH_USDT","SOL_USDT","BNB_USDT","XRP_USDT"]
 
@@ -509,7 +512,7 @@ async def auto_train_on_startup():
         
         # Scanner'dan klines topla
         klines_list = []
-        targets = list(_klines_cache.keys())[:20] or \
+        targets = list(_klines_cache.keys())[:10] or \
                   ["BTC_USDT","ETH_USDT","SOL_USDT","BNB_USDT","XRP_USDT"]
         for sym in targets:
             kl = _klines_cache.get(sym)
@@ -606,7 +609,7 @@ async def continuous_retrain_loop():
                 if client is None:
                     logger.warning("HTTPX yuklu degil, retrain pasif")
                     continue
-                for sym in (FUTURES_PAIRS[:20] or ["BTC_USDT","ETH_USDT","SOL_USDT"]):  # FIX: 15→20
+                for sym in (FUTURES_PAIRS[:10] or ["BTC_USDT","ETH_USDT","SOL_USDT"]):
                     kl = _klines_cache.get(sym) or \
                          await fetch_klines(client, sym, limit=300)
                     if kl: klines_list.append(kl)
@@ -679,6 +682,12 @@ async def keep_alive_loop():
         except Exception:
             pass
         await asyncio.sleep(840)
+
+async def memory_cleanup_loop():
+    """Periyodik garbage collection — Render free tier OOM korumasi."""
+    while True:
+        await asyncio.sleep(180)
+        gc.collect()
 
 def _log_config_status():
     """Başlangıçta konfigürasyon durumunu logla."""
@@ -756,6 +765,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(continuous_retrain_loop())
     asyncio.create_task(keep_alive_loop())
     asyncio.create_task(_initial_train_waiter())
+    asyncio.create_task(memory_cleanup_loop())
     yield
     await save_data()
     await close_http_client()
@@ -831,20 +841,34 @@ async def scanner_loop():
             if not FUTURES_PAIRS:
                 await asyncio.sleep(10); continue
                 
-            # Adaptive batch size: 8->15 based on pair count
-            batch_sz = min(config.scanner_batch_size * 2, max(8, len(FUTURES_PAIRS) // 5))
-            sem = asyncio.Semaphore(batch_sz)
+            # Chunked scanning: tüm pair'leri aynı anda işleme (OOM önleme)
+            chunk_sz = min(config.scanner_batch_size, 20)
+            sem = asyncio.Semaphore(chunk_sz)
             async def bounded_process(sym):
                 async with sem:
                     return await process_pair(client, sym)
-            tasks = [bounded_process(sym) for sym in FUTURES_PAIRS]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for sym, res in zip(FUTURES_PAIRS, results):
-                if isinstance(res, dict):
-                    scanner_cache[sym] = res
-                elif isinstance(res, Exception):
-                    logger.debug(f"Scanner: {sym} hata: {res}")
-            logger.info(f"Tarama tamamlandı — {len(scanner_cache)}/{len(FUTURES_PAIRS)} pair")
+            scanned_count = 0
+            for i in range(0, len(FUTURES_PAIRS), chunk_sz):
+                chunk = FUTURES_PAIRS[i:i+chunk_sz]
+                tasks = [bounded_process(sym) for sym in chunk]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for sym, res in zip(chunk, results):
+                    if isinstance(res, dict):
+                        scanner_cache[sym] = res
+                        scanned_count += 1
+                    elif isinstance(res, Exception):
+                        logger.debug(f"Scanner: {sym} hata: {res}")
+                    # Chunk arası küçük bir nefes alma molası
+                if len(FUTURES_PAIRS) > chunk_sz:
+                    await asyncio.sleep(0.5)
+            # Cache limit
+            if len(scanner_cache) > MAX_SCANNER_CACHE:
+                for _ in range(len(scanner_cache) - MAX_SCANNER_CACHE):
+                    try:
+                        scanner_cache.pop(next(iter(scanner_cache)))
+                    except:
+                        pass
+            logger.info(f"Tarama tamamlandı — {scanned_count}/{len(FUTURES_PAIRS)} pair")
             consecutive_failures = 0  # Reset on successful scan
             _scanner_fail_count = 0
             _scanner_last_error = ""
@@ -888,6 +912,13 @@ async def process_pair(client, symbol: str) -> dict:
 
     if klines is not None:
         _klines_cache[symbol] = klines
+        # Cache limit: Render OOM korumasi
+        if len(_klines_cache) > MAX_KLINES_CACHE:
+            for _ in range(len(_klines_cache) - MAX_KLINES_CACHE):
+                try:
+                    _klines_cache.pop(next(iter(_klines_cache)))
+                except:
+                    pass
 
     if symbol not in agent_states:
         agent_states[symbol] = {

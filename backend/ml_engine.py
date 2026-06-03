@@ -302,11 +302,11 @@ class GBMModel:
             if self._backend == "lgbm":
                 import lightgbm as lgb
                 self.clf = lgb.LGBMClassifier(
-                    n_estimators=400, learning_rate=0.025, max_depth=6,
-                    num_leaves=31, min_child_samples=5, subsample=0.8,
+                    n_estimators=200, learning_rate=0.025, max_depth=5,
+                    num_leaves=15, min_child_samples=10, subsample=0.8,
                     colsample_bytree=0.8, class_weight="balanced",
                     reg_alpha=0.1, reg_lambda=0.1,
-                    random_state=42, verbose=-1, n_jobs=-1)
+                    random_state=42, verbose=-1, n_jobs=1)
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     self.clf.fit(X, y)
@@ -390,8 +390,8 @@ class RFModel:
             if self._backend == "sklearn":
                 from sklearn.ensemble import RandomForestClassifier
                 self.clf = RandomForestClassifier(
-                    n_estimators=150, max_depth=8, min_samples_leaf=3,
-                    class_weight="balanced", random_state=42, n_jobs=-1)
+                    n_estimators=80, max_depth=6, min_samples_leaf=5,
+                    class_weight="balanced", random_state=42, n_jobs=1)
                 self.clf.fit(X, y)
                 logger.info(f"sklearn RF fit — {len(X)} sample")
             else:
@@ -517,7 +517,7 @@ def balance_classes(X: np.ndarray, y: np.ndarray, target_ratio: float = 0.35) ->
     return X_bal[idx], y_bal[idx]
 
 
-def walk_forward_validate(X, y, n_splits=5):  # FIX: 4→5 fold, daha güvenilir
+def walk_forward_validate(X, y, n_splits=3):  # FIX: 5→3 fold, memory azaltma
     if X is None or len(X) < 30:
         return {"accuracy":0,"f1":0,"n_samples":0}
     n = len(X); sz = n // (n_splits + 1); accs, f1s = [], []
@@ -900,6 +900,7 @@ class MLEngine:
         self.version_store = ModelVersionStore(os.path.join(model_dir, "model_versions"))
         self._retrain_triggers   = {"temporal":0,"drift":0,"feedback":0,"manual":0}
         self._last_drift_retrain = 0.0
+        self._model_backup_path  = os.path.join(model_dir, "model_backup.joblib")
         self._use_v2_features    = use_v2_features and _HAVE_FEATURES_V2
         self._use_v3_features    = use_v3_features and _HAVE_FEATURES_V3
         self._feature_cache      = feature_cache
@@ -1053,10 +1054,11 @@ class MLEngine:
             split = int(len(Xbal) * 0.8)
             Xtr, Xte = Xbal[:split], Xbal[split:]
             ytr, yte = ybal[:split], ybal[split:]
-            # Mevcut modeli yedekle
-            import copy as _copy
-            self._prev_gbm = _copy.deepcopy(self.gbm)
-            self._prev_rf  = _copy.deepcopy(self.rf)
+            # Mevcut modeli disk'e yedekle (deepcopy memory patlamasın)
+            try:
+                joblib.dump({'gbm': self.gbm, 'rf': self.rf}, self._model_backup_path)
+            except:
+                pass
             prev_wf = self._wf.get("accuracy", 0.0)
             self.gbm.fit(Xtr, ytr); self.rf.fit(Xtr, ytr); self._trained = True
             lmap  = {"LONG":1,"SHORT":-1,"HOLD":0,"WAIT":0}
@@ -1065,10 +1067,16 @@ class MLEngine:
             self._wf = walk_forward_validate(Xall, yall, n_splits=5)
             wf_acc   = self._wf.get("accuracy", 0.0)
 
-            # FIX: Yeni model eskisinden kötüyse eski modeli geri yükle
-            if hasattr(self, '_prev_gbm') and prev_wf > 0 and wf_acc < prev_wf - 2.0:
+            # Yeni model eskisinden kötüyse disk'ten geri yükle
+            if prev_wf > 0 and wf_acc < prev_wf - 2.0:
                 logger.warning(f"⚠️ WF düştü {prev_wf:.1f}%→{wf_acc:.1f}%, eski model korunuyor")
-                self.gbm = self._prev_gbm; self.rf = self._prev_rf
+                try:
+                    loaded = joblib.load(self._model_backup_path)
+                    if 'gbm' in loaded and 'rf' in loaded:
+                        self.gbm = loaded['gbm']
+                        self.rf = loaded['rf']
+                except:
+                    pass
                 self._wf["accuracy"] = prev_wf; wf_acc = prev_wf
             if klines_list: self._bt = self.run_backtest(klines_list[0])
             self.drift.set_baseline(wf_acc)

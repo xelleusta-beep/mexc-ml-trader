@@ -27,7 +27,7 @@ def _env(key: str, default):
 class APIConfig:
     mexc_base_url: str = _env("MEXC_BASE_URL", "https://contract.mexc.com/api/v1/contract")
     kline_interval: str = _env("KLINE_INTERVAL", "Min15")
-    kline_limit: int = _env("KLINE_LIMIT", 300)
+    kline_limit: int = _env("KLINE_LIMIT", 100)
     http_timeout_ticker: int = _env("HTTP_TIMEOUT_TICKER", 5)
     http_timeout_kline: int = _env("HTTP_TIMEOUT_KLINE", 8)
     http_timeout_detail: int = _env("HTTP_TIMEOUT_DETAIL", 10)
@@ -102,7 +102,7 @@ class MLConfig:
     rf_weight: float = _env("RF_WEIGHT", 0.4)
 
     # Egitim
-    min_samples: int = _env("MIN_SAMPLES", 80)
+    min_samples: int = _env("MIN_SAMPLES", 100)
     wf_n_splits: int = _env("WF_N_SPLITS", 5)
     balance_target_ratio: float = _env("BALANCE_TARGET_RATIO", 0.30)
     balance_target_ratio_multi: float = _env("BALANCE_TARGET_RATIO_MULTI", 0.38)
@@ -119,12 +119,12 @@ class MLConfig:
     feature_corr_threshold: float = _env("FEATURE_CORR_THRESHOLD", 0.85)
 
     # Feature Engineering v3
-    use_v3_features: bool = _env("USE_V3_FEATURES", True)
-    v3_use_mtf: bool = _env("V3_USE_MTF", True)           # Multi-Timeframe
-    v3_use_micro: bool = _env("V3_USE_MICRO", True)        # Microstructure
-    v3_use_cross: bool = _env("V3_USE_CROSS", True)        # Cross-Asset
-    v3_use_regime: bool = _env("V3_USE_REGIME", True)      # Regime
-    v3_use_sentiment: bool = _env("V3_USE_SENTIMENT", True) # Sentiment
+    use_v3_features: bool = _env("USE_V3_FEATURES", False) # V3 cok agir, V2 kullan
+    v3_use_mtf: bool = _env("V3_USE_MTF", False)           # Multi-Timeframe
+    v3_use_micro: bool = _env("V3_USE_MICRO", False)        # Microstructure
+    v3_use_cross: bool = _env("V3_USE_CROSS", False)        # Cross-Asset
+    v3_use_regime: bool = _env("V3_USE_REGIME", False)      # Regime
+    v3_use_sentiment: bool = _env("V3_USE_SENTIMENT", False) # Sentiment
 
     # Confidence
     conf_threshold_predict: float = _env("CONF_THRESHOLD_PREDICT", 52.0)
@@ -142,9 +142,9 @@ class MLConfig:
 
 @dataclass
 class RLConfig:
-    state_dim: int = _env("RL_STATE_DIM", 68)    # V3: 116 features + 4 position = 120 (dinamik)
+    state_dim: int = _env("RL_STATE_DIM", 40)    # V2 icin kucultuldu (36+4)
     n_actions: int = _env("RL_N_ACTIONS", 5)
-    hidden_dim: int = _env("RL_HIDDEN_DIM", 128) # V3 icin buyutuldu
+    hidden_dim: int = _env("RL_HIDDEN_DIM", 64)  # Render free tier icin kucultuldu
     learning_rate: float = _env("RL_LEARNING_RATE", 3e-4)
 
     # PPO hyperparams
@@ -166,7 +166,7 @@ class RLConfig:
     ewc_lambda: float = _env("RL_EWC_LAMBDA", 0.1)
 
     # Training
-    rl_pretrain_iterations: int = _env("RL_PRETRAIN_ITERATIONS", 100)
+    rl_pretrain_iterations: int = _env("RL_PRETRAIN_ITERATIONS", 30)
 
     # V2 Settings
     use_v2_agent: bool = _env("USE_V2_AGENT", True)
@@ -206,8 +206,8 @@ class AppConfig:
     telegram_chat_id: str = _env("TELEGRAM_CHAT_ID", "")
 
     # Scanner
-    scanner_interval_sec: int = _env("SCANNER_INTERVAL_SEC", 30)
-    scanner_batch_size: int = _env("SCANNER_BATCH_SIZE", 10)
+    scanner_interval_sec: int = _env("SCANNER_INTERVAL_SEC", 60)
+    scanner_batch_size: int = _env("SCANNER_BATCH_SIZE", 5)
     retrain_loop_interval_sec: int = _env("RETRAIN_LOOP_INTERVAL", 300)
     startup_grace_sec: int = _env("STARTUP_GRACE_SEC", 120)
 
