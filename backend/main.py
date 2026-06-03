@@ -15,11 +15,15 @@ from fastapi.responses import FileResponse, JSONResponse
 from config import config
 from wallet_tracker import scan_for_whales, check_wallet_balances, get_summary as w_summary, get_recent_txs, get_stats as w_stats
 from news_tracker import fetch_news, get_news_feed, get_sentiment_summary, check_symbol_news
-from signal_engine import signal_engine
+from signal_engine import signal_engine, set_learn_engine
 from trade_executor import execute_signal, check_positions, get_summary as t_summary, active_positions, trade_history, portfolio
+from learn_engine import LearnEngine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+learn_engine = LearnEngine(config.PERSIST_DIR)
+set_learn_engine(learn_engine)
 
 _AUTH_TOKEN = os.getenv("AUTH_TOKEN", "")
 if not _AUTH_TOKEN:
@@ -100,6 +104,7 @@ async def main_loop():
                 # ── Pozisyon kontrol ──
                 closed = await check_positions(client)
                 for c in closed:
+                    learn_engine.record_trade(c)
                     asyncio.create_task(send_tg(
                         f"<b>KAPANDI: {c['symbol']}</b>\nPnL: ${c['pnl']:.2f} | {c['reason']}"
                     ))
@@ -204,3 +209,7 @@ async def news():
 @app.get("/api/signals")
 async def signals():
     return {"signals": signal_engine.get_summary()}
+
+@app.get("/api/learn")
+async def learn():
+    return learn_engine.get_summary()

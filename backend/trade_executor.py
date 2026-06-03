@@ -87,6 +87,7 @@ async def execute_signal(client, signal):
         "unrealized_pnl": 0,
         "score": score,
         "confidence": confidence,
+        "source": signal.get("source", "whale_tracker"),
     }
     active_positions[sym] = pos
 
@@ -130,6 +131,7 @@ async def check_positions(client):
             portfolio["total_fees"] += exit_fee
             portfolio["total_closed_trades"] += 1
 
+            source = pos.get("source", "unknown")
             trade_history.append({
                 "symbol": sym,
                 "side": side,
@@ -138,11 +140,12 @@ async def check_positions(client):
                 "pnl": round(net_pnl, 2),
                 "leverage": pos["leverage"],
                 "reason": exit_reason,
+                "source": source,
                 "time": datetime.now(timezone.utc).isoformat(),
             })
             logger.info(f"POSITION CLOSE: {sym} @ {price} | PnL={net_pnl:.2f} | {exit_reason}")
             del active_positions[sym]
-            closed.append({"symbol": sym, "pnl": net_pnl, "reason": exit_reason})
+            closed.append({"symbol": sym, "pnl": net_pnl, "reason": exit_reason, "source": source})
 
     return closed
 

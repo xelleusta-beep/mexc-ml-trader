@@ -13,6 +13,15 @@ from config import config
 logger = logging.getLogger(__name__)
 
 
+# Sonradan set edilecek (circular import önleme)
+learn_engine = None
+
+
+def set_learn_engine(engine):
+    global learn_engine
+    learn_engine = engine
+
+
 class SignalEngine:
     def __init__(self):
         # symbol -> list of events
@@ -20,9 +29,21 @@ class SignalEngine:
         self._scores = {}
         self._last_signals = {}
 
+    def get_dynamic_threshold(self):
+        if learn_engine:
+            return learn_engine.get_score_threshold()
+        return config.MIN_SIGNAL_SCORE
+
     def add_wallet_signal(self, signals):
         """Cüzdan takibinden gelen sinyalleri işle."""
         for sig in signals:
+            # Öğrenilen whale weight uygula
+            weight = 1.0
+            whale_addr = sig.get("label", "").replace("Whale-", "")
+            if learn_engine:
+                weight = learn_engine.get_whale_weight(whale_addr)
+            sig["score"] = sig.get("score", 0) * weight
+
             direction = sig.get("direction", "")
             value = sig.get("diff_eth", 0) or sig.get("value_eth", 0)
 
@@ -88,15 +109,21 @@ class SignalEngine:
         return scores
 
     def get_trade_signal(self, symbol):
-        """Bir sembol için işlem sinyali üret."""
+        """Bir sembol için işlem sinyali üret (dinamik threshold)."""
         score = self._scores.get(symbol, 0)
+        threshold = self.get_dynamic_threshold()
 
-        if score >= config.MIN_SIGNAL_SCORE:
-            return {"symbol": symbol, "signal": "LONG", "score": score, "confidence": min(95, 50 + score * 10)}
-        elif score <= -config.MIN_SIGNAL_SCORE:
-            return {"symbol": symbol, "signal": "SHORT", "score": score, "confidence": min(95, 50 + abs(score) * 10)}
+        # Symbol bias uygula
+        bias = learn_engine.get_symbol_bias(symbol) if learn_engine else 0
+        adjusted_score = score + bias * 0.5
+        adjusted_conf = min(95, 50 + abs(adjusted_score) * 10)
+
+        if adjusted_score >= threshold:
+            return {"symbol": symbol, "signal": "LONG", "score": round(adjusted_score, 2), "confidence": adjusted_conf, "source": "whale_tracker"}
+        elif adjusted_score <= -threshold:
+            return {"symbol": symbol, "signal": "SHORT", "score": round(adjusted_score, 2), "confidence": adjusted_conf, "source": "whale_tracker"}
         else:
-            return {"symbol": symbol, "signal": "WAIT", "score": score, "confidence": 0}
+            return {"symbol": symbol, "signal": "WAIT", "score": round(score, 2), "confidence": 0, "source": ""}
 
     def get_all_signals(self):
         """Tüm semboller için sinyal durumu."""
@@ -111,13 +138,15 @@ class SignalEngine:
     def get_summary(self):
         """Dashboard için özet."""
         self.calculate_scores()
+        threshold = self.get_dynamic_threshold()
         result = []
         for sym in config.TRACKED_SYMBOLS:
             score = self._scores.get(sym, 0)
+            signal = "LONG" if score >= threshold else ("SHORT" if score <= -threshold else "WAIT")
             result.append({
                 "symbol": sym,
                 "score": score,
-                "signal": "LONG" if score >= config.MIN_SIGNAL_SCORE else ("SHORT" if score <= -config.MIN_SIGNAL_SCORE else "WAIT"),
+                "signal": signal,
                 "events": len(self._events.get(sym, [])),
             })
         return sorted(result, key=lambda x: abs(x["score"]), reverse=True)
