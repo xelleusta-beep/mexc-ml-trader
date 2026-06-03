@@ -14,10 +14,7 @@ services:
         value: "1"
       # ETHEREUM API KEY (etherscan.io ucretsiz)
       - key: ETHERSCAN_KEY
-        value: ""
-      # NEWS API KEY (cryptopanic.com ucretsiz)
-      - key: CRYPTOPANIC_KEY
-        value: ""
+        value: "J75REUKRVKVZ5IQFR6TVDENE5MDN8P86PU"
       # TELEGRAM (opsiyonel)
       - key: TELEGRAM_BOT_TOKEN
         value: ""

@@ -1,238 +1,194 @@
 """
-Balina cüzdan takibi.
-Etherscan/BSCScan API ile cüzdan bakiyelerini ve son işlemleri kontrol eder.
-Büyük hareketlerde sinyal üretir.
+Balina cüzdan takibi - OTOMATİK TESPİT.
+Kullanıcının hiçbir şey girmesine gerek yok.
+Bot, zincirdeki büyük transferleri otomatik bulup takibe alır.
 """
 
 import time
 import logging
-from datetime import datetime, timezone
 from collections import defaultdict
 
 from config import config
 
 logger = logging.getLogger(__name__)
 
-# Önbellek
-_wallet_cache = {}       # address -> {"balance": ..., "last_tx": ..., "ts": ...}
-_recent_tx_cache = []    # son tespit edilen büyük işlemler
+# Dinamik takip listesi (otomatik tespit edilen balina cüzdanlar)
+_watched_wallets = {}         # address -> {"label": "...", "balance": 0, "first_seen": ts, "last_seen": ts, "total_sent": 0, "total_received": 0, "tx_count": 0}
+_recent_txs = []              # son büyük işlemler
+_all_time_whales = set()      # bugüne kadar tespit edilen tüm balina adresleri
 
-CHAIN_API = {
-    "ethereum": "https://api.etherscan.io/api",
-    "bsc": "https://api.bscscan.com/api",
-}
-
-CHAIN_API_KEY = {
-    "ethereum": config.ETHERSCAN_KEY,
-    "bsc": config.BSCSCAN_KEY,
-}
-
-USDT_CONTRACTS = {
-    "ethereum": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-    "bsc": "0x55d398326f99059fF775485246999027B3197955",
-}
-
-USDC_CONTRACTS = {
-    "ethereum": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-    "bsc": "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
-}
+ETHERSCAN_BASE = "https://api.etherscan.io/api"
 
 
-async def fetch_balance(client, address, chain="ethereum"):
-    """ETH/BSC ana token bakiyesini sorgula (USD cinsinden değil, native token)."""
-    base = CHAIN_API.get(chain)
-    key = CHAIN_API_KEY.get(chain)
-    if not base or not key:
-        return 0
-
-    url = f"{base}?module=account&action=balance&address={address}&tag=latest&apikey={key}"
+async def _get(client, params):
+    """Etherscan API'ye GET isteği."""
+    params["apikey"] = config.ETHERSCAN_KEY
     try:
-        r = await client.get(url, timeout=10)
-        data = r.json()
-        if data.get("status") == "1":
-            bal = int(data["result"]) / 1e18
-            return round(bal, 4)
+        r = await client.get(ETHERSCAN_BASE, params=params, timeout=15)
+        if r.status_code == 200:
+            return r.json()
     except Exception as e:
-        logger.debug(f"Balance fetch error {address}: {e}")
+        logger.debug(f"Etherscan error: {e}")
+    return None
+
+
+async def get_latest_block(client):
+    """En son blok numarasını al."""
+    data = await _get(client, {"module": "proxy", "action": "eth_blockNumber"})
+    if data and data.get("result"):
+        return int(data["result"], 16)
     return 0
 
 
-async def fetch_token_balance(client, address, contract, chain="ethereum"):
-    """ERC-20/BEP-20 token bakiyesi sorgula."""
-    base = CHAIN_API.get(chain)
-    key = CHAIN_API_KEY.get(chain)
-    if not base or not key:
-        return 0
-
-    url = f"{base}?module=account&action=tokenbalance&contractaddress={contract}&address={address}&tag=latest&apikey={key}"
-    try:
-        r = await client.get(url, timeout=10)
-        data = r.json()
-        if data.get("status") == "1":
-            bal = int(data["result"]) / 1e18
-            return round(bal, 4)
-    except Exception as e:
-        logger.debug(f"Token balance error {address}: {e}")
-    return 0
-
-
-async def fetch_recent_txs(client, address, chain="ethereum"):
-    """Son 50 işlemi getir, büyük transferleri tespit et."""
-    base = CHAIN_API.get(chain)
-    key = CHAIN_API_KEY.get(chain)
-    if not base or not key:
-        return []
-
-    url = f"{base}?module=account&action=txlist&address={address}&sort=desc&offset=50&page=1&apikey={key}"
-    try:
-        r = await client.get(url, timeout=10)
-        data = r.json()
-        if data.get("status") == "1":
-            return data["result"]
-    except Exception as e:
-        logger.debug(f"TX fetch error {address}: {e}")
+async def get_block_transactions(client, block_number):
+    """Belirli bir bloktaki işlemleri getir."""
+    data = await _get(client, {"module": "proxy", "action": "eth_getBlockByNumber", "tag": hex(block_number), "boolean": "true"})
+    if data and data.get("result"):
+        return data["result"].get("transactions", [])
     return []
 
 
-async def fetch_token_txs(client, address, contract, chain="ethereum"):
-    """ERC-20 token transferlerini getir."""
-    base = CHAIN_API.get(chain)
-    key = CHAIN_API_KEY.get(chain)
-    if not base or not key:
-        return []
-
-    url = f"{base}?module=account&action=tokentx&contractaddress={contract}&address={address}&sort=desc&offset=50&page=1&apikey={key}"
-    try:
-        r = await client.get(url, timeout=10)
-        data = r.json()
-        if data.get("status") == "1":
-            return data["result"]
-    except Exception as e:
-        logger.debug(f"Token TX error {address}: {e}")
-    return []
-
-
-def _classify_tx(tx, chain="ethereum"):
-    """İşlemi sınıflandır: büyük transfer mi, exchange mi vs."""
-    value_eth = int(tx.get("value", 0)) / 1e18
-    if value_eth < 10:  # 10 ETH altı küçük işlem
-        return None
-
-    tx_hash = tx.get("hash", "")[:10]
-    to_addr = tx.get("to", "").lower()
-    from_addr = tx.get("from", "").lower()
-
-    # Basit kural: bilinen exchange adreslerine giden = muhtemel satış
-    # (gerçek exchange adresleri eklenecek)
-    known_exchanges = [
-        "0x28c6c06298d514db089934071355e5743bf21d60",  # Binance 14
-        "0x21a31ee1afc51d94c2efccaa2092ad1028285549",  # Binance 15
-        "0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8",  # Binance 18
-        "0xf977814e90da44bfa03b6295a0616a897441acec",  # Binance 19
-        "0x3f5CE5FBFe3E9af3971dD833D26bA5b1C7F9E8d",  # Binance 20
-    ]
-
-    event_type = "unknown"
-    if to_addr in known_exchanges or from_addr in known_exchanges:
-        event_type = "exchange"
-    elif value_eth >= 1000:
-        event_type = "whale_move"
-    elif value_eth >= 100:
-        event_type = "large_move"
-
-    return {
-        "hash": tx_hash,
-        "from": from_addr[:10],
-        "to": to_addr[:10],
-        "value_eth": round(value_eth, 2),
-        "type": event_type,
-        "chain": chain,
-        "timestamp": tx.get("timeStamp", ""),
-        "ts": time.time(),
-    }
-
-
-async def scan_wallets(client):
-    """Tüm takip edilen cüzdanları tara, büyük hareketleri raporla."""
-    global _recent_tx_cache
+async def scan_for_whales(client):
+    """
+    Son blokları tara, büyük ETH transferlerini tespit et.
+    Hiçbir ön tanımlı cüzdan olmadan çalışır.
+    """
+    global _watched_wallets, _recent_txs, _all_time_whales
 
     signals = []
-    now = time.time()
+    latest = await get_latest_block(client)
+    if latest == 0:
+        return signals
 
-    for chain, wallets in config.TRACKED_WALLETS.items():
-        for wallet in wallets:
-            address = wallet["address"]
-            label = wallet["label"]
+    start_block = max(0, latest - config.BLOCK_RANGE)
+    logger.debug(f"Scanning blocks {start_block}-{latest}")
 
-            # ETH bakiyesi
-            balance = await fetch_balance(client, address, chain)
-            prev = _wallet_cache.get(address, {})
+    for bn in range(latest, start_block, -1):
+        txs = await get_block_transactions(client, bn)
+        for tx in txs[:50]:
+            value_hex = tx.get("value", "0x0")
+            try:
+                value_wei = int(value_hex, 16)
+            except:
+                continue
 
-            # Büyük bakiye değişimi
-            if prev and "balance" in prev:
-                diff = balance - prev["balance"]
-                if abs(diff) > 10:  # 10 ETH üzeri değişim
-                    signals.append({
-                        "type": "balance_change",
+            value_eth = value_wei / 1e18
+            if value_eth < config.WHALE_THRESHOLD_ETH:
+                continue
+
+            from_addr = tx.get("from", "").lower()
+            to_addr = tx.get("to", "").lower()
+            tx_hash = tx.get("hash", "")[:12]
+
+            if not from_addr or not to_addr:
+                continue
+            if from_addr == "0x0000000000000000000000000000000000000000":
+                continue
+
+            # Her iki adresi de takip listesine ekle
+            for addr, role in [(from_addr, "sender"), (to_addr, "receiver")]:
+                if addr not in _watched_wallets and len(_watched_wallets) < config.MAX_WATCHED_WALLETS:
+                    label = f"Whale-{addr[:6]}"
+                    _watched_wallets[addr] = {
                         "label": label,
-                        "address": address[:10],
-                        "chain": chain,
-                        "diff_eth": round(diff, 2),
-                        "direction": "accumulate" if diff > 0 else "distribute",
-                        "ts": now,
-                    })
-                    logger.info(f"Balance change [{label}]: {diff:+.2f} ETH")
+                        "balance": 0,
+                        "first_seen": time.time(),
+                        "last_seen": time.time(),
+                        "total_sent": 0,
+                        "total_received": 0,
+                        "tx_count": 0,
+                    }
+                    _all_time_whales.add(addr)
+                    logger.info(f"New whale detected: {label} ({addr[:12]}...), {value_eth:.0f} ETH")
 
-            _wallet_cache[address] = {"balance": balance, "ts": now}
+                if addr in _watched_wallets:
+                    w = _watched_wallets[addr]
+                    w["last_seen"] = time.time()
+                    w["tx_count"] += 1
+                    if role == "sender":
+                        w["total_sent"] += value_eth
+                    else:
+                        w["total_received"] += value_eth
 
-            # Son işlemler
-            txs = await fetch_recent_txs(client, address, chain)
-            for tx in txs[:10]:
-                event = _classify_tx(tx, chain)
-                if event and event["value_eth"] >= 100:
-                    already_seen = any(t["hash"] == event["hash"] for t in _recent_tx_cache[-50:])
-                    if not already_seen:
-                        _recent_tx_cache.append(event)
-                        signals.append({
-                            "type": f"tx_{event['type']}",
-                            "label": label,
-                            "address": address[:10],
-                            "chain": chain,
-                            "value_eth": event["value_eth"],
-                            "tx_hash": event["hash"],
-                            "ts": now,
-                        })
-                        logger.info(f"Big TX [{label}]: {event['value_eth']} ETH ({event['type']})")
+            # İşlemi kaydet
+            _recent_txs.append({
+                "hash": tx_hash,
+                "from": from_addr[:10],
+                "to": to_addr[:10],
+                "value_eth": round(value_eth, 2),
+                "block": bn,
+                "ts": time.time(),
+            })
 
-            # Token bakiyeleri (USDT/USDC)
-            for stable in [USDT_CONTRACTS[chain], USDC_CONTRACTS[chain]]:
-                stable_bal = await fetch_token_balance(client, address, stable, chain)
-                if stable_bal > 100_000:
-                    logger.debug(f"[{label}] {stable_bal:.0f} stablecoin")
+            # Sinyal üret
+            direction = "accumulate" if from_addr in _watched_wallets else "distribute"
+            signals.append({
+                "type": "whale_move",
+                "label": _watched_wallets.get(to_addr, {}).get("label", "Unknown"),
+                "from": from_addr[:10],
+                "to": to_addr[:10],
+                "value_eth": round(value_eth, 2),
+                "direction": direction,
+                "ts": time.time(),
+            })
 
     # Cache temizlik
-    if len(_recent_tx_cache) > 200:
-        _recent_tx_cache[:] = _recent_tx_cache[-100:]
+    if len(_recent_txs) > 200:
+        _recent_txs[:] = _recent_txs[-100:]
+
+    logger.info(f"Scan done: {len(_watched_wallets)} watched, {len(signals)} new signals")
+    return signals
+
+
+async def check_wallet_balances(client):
+    """Takip edilen cüzdanların güncel ETH bakiyelerini sorgula."""
+    if not _watched_wallets:
+        return []
+
+    signals = []
+    for addr, info in list(_watched_wallets.items()):
+        data = await _get(client, {"module": "account", "action": "balance", "address": addr, "tag": "latest"})
+        if data and data.get("status") == "1":
+            balance = int(data["result"]) / 1e18
+            prev = info["balance"]
+            info["balance"] = round(balance, 4)
+
+            if prev > 0 and abs(balance - prev) > 50:
+                signals.append({
+                    "type": "balance_change",
+                    "label": info["label"],
+                    "address": addr[:10],
+                    "diff_eth": round(balance - prev, 2),
+                    "direction": "accumulate" if balance > prev else "distribute",
+                    "ts": time.time(),
+                })
 
     return signals
 
 
-def get_wallet_summary():
+def get_summary():
     """Dashboard için özet."""
-    result = []
-    for chain, wallets in config.TRACKED_WALLETS.items():
-        for w in wallets:
-            info = _wallet_cache.get(w["address"], {})
-            result.append({
-                "label": w["label"],
-                "address": w["address"][:12] + "...",
-                "chain": chain,
-                "balance_eth": info.get("balance", 0),
-                "last_seen": info.get("ts", 0),
-            })
-    return result
+    whales = []
+    for addr, info in sorted(_watched_wallets.items(), key=lambda x: x[1]["total_sent"] + x[1]["total_received"], reverse=True)[:20]:
+        whales.append({
+            "label": info["label"],
+            "address": addr[:12] + "...",
+            "balance_eth": info["balance"],
+            "total_sent": round(info["total_sent"], 1),
+            "total_received": round(info["total_received"], 1),
+            "tx_count": info["tx_count"],
+            "last_seen": info["last_seen"],
+        })
+    return whales
 
 
 def get_recent_txs(limit=20):
-    """Son büyük işlemler."""
-    return sorted(_recent_tx_cache, key=lambda x: x["ts"], reverse=True)[:limit]
+    return sorted(_recent_txs, key=lambda x: x["ts"], reverse=True)[:limit]
+
+
+def get_stats():
+    return {
+        "total_whales_detected": len(_all_time_whales),
+        "currently_watched": len(_watched_wallets),
+        "total_txs_tracked": len(_recent_txs),
+    }

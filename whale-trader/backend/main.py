@@ -13,10 +13,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from config import config
-from wallet_tracker import scan_wallets, get_wallet_summary, get_recent_txs
+from wallet_tracker import scan_for_whales, check_wallet_balances, get_summary as w_summary, get_recent_txs, get_stats as w_stats
 from news_tracker import fetch_news, get_news_feed, get_sentiment_summary, check_symbol_news
 from signal_engine import signal_engine
-from trade_executor import execute_signal, check_positions, get_summary, active_positions, trade_history, portfolio
+from trade_executor import execute_signal, check_positions, get_summary as t_summary, active_positions, trade_history, portfolio
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -27,7 +27,6 @@ if not _AUTH_TOKEN:
     logger.info("AUTH_TOKEN: %s", _AUTH_TOKEN)
 
 
-# ── Telegram ───────────────────────────────────────────────────────────────
 async def send_tg(text):
     if not config.TG_TOKEN or not config.TG_CHAT:
         return
@@ -42,44 +41,54 @@ async def send_tg(text):
         logger.error(f"TG error: {e}")
 
 
-# ── Scanner Loop ───────────────────────────────────────────────────────────
 async def main_loop():
     await asyncio.sleep(10)
     logger.info("Main loop started")
 
-    wallet_counter = 0
-    news_counter = 0
+    wallet_scan_count = 0
+    news_count = 0
+    balance_check_count = 0
 
     while True:
         try:
             import httpx
-            async with httpx.AsyncClient(timeout=15) as client:
-                # Cüzdan tara (her SCAN_INTERVAL)
-                wallet_counter += 1
-                if wallet_counter >= config.SCAN_INTERVAL / min(config.TRADING_INTERVAL, 60):
-                    wallet_counter = 0
-                    if config.TRACKED_WALLETS.get("ethereum") or config.TRACKED_WALLETS.get("bsc"):
-                        wallet_sigs = await scan_wallets(client)
-                        if wallet_sigs:
-                            signal_engine.add_wallet_signal(wallet_sigs)
-                            for sig in wallet_sigs[:3]:
-                                msg = f"Balina: {sig['label']} | {sig.get('direction','')} {sig.get('diff_eth',sig.get('value_eth',''))}"
-                                logger.info(msg)
-                                asyncio.create_task(send_tg(f"🐋 {msg}"))
+            async with httpx.AsyncClient(timeout=20) as client:
+                # ── Blok taraması (her SCAN_INTERVAL) ──
+                wallet_scan_count += 1
+                if wallet_scan_count >= max(1, config.SCAN_INTERVAL // config.TRADING_INTERVAL):
+                    wallet_scan_count = 0
+                    logger.info("Scanning blockchain for whale movements...")
+                    sigs = await scan_for_whales(client)
+                    if sigs:
+                        signal_engine.add_wallet_signal(sigs)
+                        for s in sigs[:3]:
+                            msg = f"🐋 {s.get('label', 'Whale')} | {s.get('value_eth', 0)} ETH | {s.get('direction', 'move')}"
+                            logger.info(msg)
+                            asyncio.create_task(send_tg(msg))
 
-                # Haber tara (her NEWS_INTERVAL)
-                news_counter += 1
-                if news_counter >= config.NEWS_INTERVAL / min(config.TRADING_INTERVAL, 60):
-                    news_counter = 0
+                # ── Bakiye kontrolü (her 2. scan'de) ──
+                balance_check_count += 1
+                if balance_check_count >= 4:
+                    balance_check_count = 0
+                    bal_sigs = await check_wallet_balances(client)
+                    if bal_sigs:
+                        signal_engine.add_wallet_signal(bal_sigs)
+                        for s in bal_sigs[:3]:
+                            msg = f"💰 {s['label']} bakiye degisti: {s['diff_eth']:+.0f} ETH"
+                            logger.info(msg)
+
+                # ── Haber (her NEWS_INTERVAL) ──
+                news_count += 1
+                if news_count >= max(1, config.NEWS_INTERVAL // config.TRADING_INTERVAL):
+                    news_count = 0
                     await fetch_news(client)
                     for sym in config.TRACKED_SYMBOLS:
                         sentiment = await check_symbol_news(client, sym)
                         if abs(sentiment) > 0.3:
                             signal_engine.add_news_signal(sym, sentiment)
 
-                # Sinyalleri hesapla ve işlem yap
-                signals = signal_engine.get_all_signals()
-                for sig in signals:
+                # ── Sinyallere göre işlem ──
+                for sig in signal_engine.get_all_signals():
                     pos = await execute_signal(client, sig)
                     if pos:
                         asyncio.create_task(send_tg(
@@ -88,12 +97,11 @@ async def main_loop():
                             f"Fiyat: ${pos['entry_price']:.2f} | {pos['leverage']}x"
                         ))
 
-                # Pozisyon kontrol
+                # ── Pozisyon kontrol ──
                 closed = await check_positions(client)
                 for c in closed:
                     asyncio.create_task(send_tg(
-                        f"<b>KAPANDI: {c['symbol']}</b>\n"
-                        f"PnL: ${c['pnl']:.2f} | {c['reason']}"
+                        f"<b>KAPANDI: {c['symbol']}</b>\nPnL: ${c['pnl']:.2f} | {c['reason']}"
                     ))
 
         except Exception as e:
@@ -102,17 +110,16 @@ async def main_loop():
         await asyncio.sleep(config.TRADING_INTERVAL)
 
 
-# ── GC Loop ────────────────────────────────────────────────────────────────
 async def gc_loop():
     while True:
         await asyncio.sleep(180)
         gc.collect()
 
 
-# ── Lifespan ───────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Whale Trader basliyor...")
+    logger.info(f"Etherscan API: {'VAR' if config.ETHERSCAN_KEY else 'YOK'}")
     task = asyncio.create_task(main_loop())
     asyncio.create_task(gc_loop())
     yield
@@ -136,7 +143,6 @@ def _save_state():
         logger.error(f"Save error: {e}")
 
 
-# ── FastAPI ────────────────────────────────────────────────────────────────
 app = FastAPI(title="Whale Trader Bot", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -151,7 +157,6 @@ async def auth(request: Request, call_next):
     return await call_next(request)
 
 
-# ── Frontend ────────────────────────────────────────────────────────────────
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 
 
@@ -163,21 +168,17 @@ async def root():
     return {"status": "ok"}
 
 
-# ── API ─────────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
-    return {
-        "status": "ok",
-        "positions": len(active_positions),
-        "trades": portfolio["total_closed_trades"],
-    }
+    return {"status": "ok", "positions": len(active_positions), "trades": portfolio["total_closed_trades"]}
 
 
 @app.get("/api/status")
 async def status():
-    s = get_summary()
+    s = t_summary()
     sigs = signal_engine.get_summary()
-    return {**s, "signals": sigs}
+    w = w_stats()
+    return {**s, "signals": sigs, "whale_stats": w}
 
 
 @app.get("/api/positions")
@@ -192,18 +193,12 @@ async def history():
 
 @app.get("/api/wallets")
 async def wallets():
-    return {
-        "wallets": get_wallet_summary(),
-        "recent_txs": get_recent_txs(20),
-    }
+    return {"wallets": w_summary(), "recent_txs": get_recent_txs(20), "stats": w_stats()}
 
 
 @app.get("/api/news")
 async def news():
-    return {
-        "news": get_news_feed(20),
-        "sentiment": get_sentiment_summary(),
-    }
+    return {"news": get_news_feed(20), "sentiment": get_sentiment_summary()}
 
 
 @app.get("/api/signals")

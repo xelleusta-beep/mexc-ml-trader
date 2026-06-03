@@ -1,6 +1,5 @@
 """
-Kripto haber takibi + sentiment analizi.
-CryptoPanic API kullanır (ücretsiz: 100 istek/gün).
+Kripto haber takibi - CoinGecko API (ücretsiz, API key gerekmez).
 """
 
 import time
@@ -13,74 +12,73 @@ logger = logging.getLogger(__name__)
 
 _news_cache = []
 _last_fetch = 0
-_symbol_sentiment = {}  # symbol -> average sentiment score (-1 to +1)
+_symbol_sentiment = {}
+
+# CryptoPanic yok, CoinGecko'nun status_updates endpoint'ini kullan
+COINGECKO_NEWS = "https://api.coingecko.com/api/v3/news"
+COINGECKO_TRENDING = "https://api.coingecko.com/api/v3/search/trending"
 
 
 async def fetch_news(client):
-    """CryptoPanic'ten son haberleri çek."""
+    """CoinGecko'dan son haberleri çek (API key gerekmez)."""
     global _news_cache, _last_fetch, _symbol_sentiment
 
-    if not config.CRYPTOPANIC_KEY:
-        return []
-
-    # Rate limit: en fazla 5dk'da bir
     if time.time() - _last_fetch < 120:
         return _news_cache
 
-    url = f"https://cryptopanic.com/api/v1/posts/?auth_token={config.CRYPTOPANIC_KEY}&public=true"
+    parsed = []
+
+    # CoinGecko News
     try:
-        r = await client.get(url, timeout=10)
-        data = r.json()
-        results = data.get("results", [])
+        r = await client.get(COINGECKO_NEWS, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            for item in (data if isinstance(data, list) else data.get("data", []))[:20]:
+                title = item.get("title", "")
+                url_link = item.get("url", "")
+                parsed.append({
+                    "title": title,
+                    "url": url_link,
+                    "source": "CoinGecko",
+                    "ts": time.time(),
+                })
+    except Exception as e:
+        logger.debug(f"CoinGecko news error: {e}")
 
-        parsed = []
-        for post in results[:30]:
-            title = post.get("title", "")
-            url_link = post.get("url", "")
-            source = post.get("source", {}).get("title", "unknown")
-            kind = post.get("kind", "news")
-            domain = post.get("domain", "")
-            published = post.get("published_at", "")
-            currencies = [c["code"] for c in post.get("currencies", []) if c.get("code")]
+    # Trending coins (hangi coinler konuşuluyor)
+    try:
+        r = await client.get(COINGECKO_TRENDING, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            coins = data.get("coins", [])
+            trending = [c["item"]["symbol"].upper() for c in coins[:10]]
+            if trending:
+                parsed.append({
+                    "title": f"Trending: {', '.join(trending)}",
+                    "url": "",
+                    "source": "CoinGecko Trending",
+                    "ts": time.time(),
+                })
+    except Exception as e:
+        logger.debug(f"CoinGecko trending error: {e}")
 
-            if not currencies:
-                # Genel haber, tüm sembolleri etkileyebilir
-                currencies = ["GENERAL"]
-
-            parsed.append({
-                "title": title,
-                "url": url_link,
-                "source": source,
-                "kind": kind,
-                "domain": domain,
-                "currencies": currencies,
-                "published_at": published,
-                "ts": time.time(),
-            })
-
+    if parsed:
         _news_cache = parsed
         _last_fetch = time.time()
-
-        # Sentiment hesapla
         _symbol_sentiment = _calc_sentiment(parsed)
-        logger.info(f"News: {len(parsed)} haber, {len(_symbol_sentiment)} sembol sentiment")
-
-    except Exception as e:
-        logger.error(f"News fetch error: {e}")
+        logger.info(f"News: {len(parsed)} items")
 
     return _news_cache
 
 
 def _calc_sentiment(posts):
-    """Haber başlıklarına göre sentiment skoru hesapla."""
-    sentiment = defaultdict(lambda: {"score": 0, "count": 0})
-    bullish_kw = config.NEWS_KEYWORDS.get("bullish", [])
-    bearish_kw = config.NEWS_KEYWORDS.get("bearish", [])
+    """Haber başlıklarından sentiment çıkar."""
+    sentiment = defaultdict(lambda: 0)
+    bullish_kw = ["etf", "adoption", "partnership", "listing", "buyback", "upgrade", "approval", "bull", "rally", "surge"]
+    bearish_kw = ["hack", "exploit", "ban", "regulation", "crackdown", "fraud", "investigation", "delist", "crash", "dump"]
 
     for post in posts:
         title = post["title"].lower()
-        currencies = post["currencies"]
-
         score = 0
         for kw in bullish_kw:
             if kw in title:
@@ -89,41 +87,25 @@ def _calc_sentiment(posts):
             if kw in title:
                 score -= 1
 
-        if "not" in title:
-            score *= -1
-
-        if score != 0:
-            for sym in currencies:
-                sentiment[sym]["score"] += score
-                sentiment[sym]["count"] += 1
+        for sym in config.TRACKED_SYMBOLS:
+            if sym.lower() in title:
+                sentiment[sym] += score
 
     result = {}
-    for sym, data in sentiment.items():
-        if data["count"] > 0:
-            avg = data["score"] / data["count"]
-            result[sym] = round(max(-1, min(1, avg)), 3)
-        else:
-            result[sym] = 0
+    for sym, total in sentiment.items():
+        result[sym] = round(max(-1, min(1, total / 3)), 3)
     return result
 
 
 async def check_symbol_news(client, symbol):
-    """Belirli bir sembol için haber sentiment skoru döndür."""
     if not _news_cache or time.time() - _last_fetch > 300:
         await fetch_news(client)
     return _symbol_sentiment.get(symbol, 0)
 
 
 def get_news_feed(limit=20):
-    """Dashboard için haber akışı."""
-    return sorted(_news_cache, key=lambda x: x.get("published_at", ""), reverse=True)[:limit]
+    return _news_cache[:limit]
 
 
 def get_sentiment_summary():
-    """Dashboard için sentiment özeti."""
-    result = []
-    for sym, score in sorted(_symbol_sentiment.items(), key=lambda x: abs(x[1]), reverse=True):
-        if sym == "GENERAL":
-            continue
-        result.append({"symbol": sym, "sentiment": score})
-    return result[:20]
+    return [{"symbol": sym, "sentiment": score} for sym, score in sorted(_symbol_sentiment.items(), key=lambda x: abs(x[1]), reverse=True)][:15]
