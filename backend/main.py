@@ -52,7 +52,7 @@ async def main_loop():
     while True:
         try:
             import httpx
-            async with httpx.AsyncClient(timeout=20) as client:
+            async with httpx.AsyncClient(timeout=20, headers={"User-Agent": "WhaleTraderBot/1.0"}) as client:
                 # ── Blok taraması (her SCAN_INTERVAL) ──
                 wallet_scan_count += 1
                 if wallet_scan_count >= max(1, config.SCAN_INTERVAL // config.TRADING_INTERVAL):

@@ -1,7 +1,9 @@
 """
-Kripto haber takibi - CoinGecko API (ücretsiz, API key gerekmez).
+Kripto haber takibi - RSS (ücretsiz, API key gerekmez).
+CoinGecko kapandı, RSS feed'ler ile devam.
 """
 
+import re
 import time
 import logging
 from collections import defaultdict
@@ -14,68 +16,72 @@ _news_cache = []
 _last_fetch = 0
 _symbol_sentiment = {}
 
-# CryptoPanic yok, CoinGecko'nun status_updates endpoint'ini kullan
-COINGECKO_NEWS = "https://api.coingecko.com/api/v3/news"
-COINGECKO_TRENDING = "https://api.coingecko.com/api/v3/search/trending"
+# RSS kaynakları (API key gerektirmez)
+RSS_FEEDS = [
+    "https://cointelegraph.com/rss",
+    "https://cointelegraph.com/editors.rss",
+    "https://cryptonews.com/news/feed/",
+    "https://www.newsbtc.com/feed/",
+]
 
 
 async def fetch_news(client):
-    """CoinGecko'dan son haberleri çek (API key gerekmez)."""
+    """RSS feed'lerden haber çek."""
     global _news_cache, _last_fetch, _symbol_sentiment
 
     if time.time() - _last_fetch < 120:
         return _news_cache
 
     parsed = []
+    for feed_url in RSS_FEEDS:
+        try:
+            r = await client.get(feed_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code != 200:
+                logger.debug(f"RSS {feed_url}: {r.status_code}")
+                continue
 
-    # CoinGecko News
-    try:
-        r = await client.get(COINGECKO_NEWS, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            for item in (data if isinstance(data, list) else data.get("data", []))[:20]:
-                title = item.get("title", "")
-                url_link = item.get("url", "")
-                parsed.append({
-                    "title": title,
-                    "url": url_link,
-                    "source": "CoinGecko",
-                    "ts": time.time(),
-                })
-    except Exception as e:
-        logger.debug(f"CoinGecko news error: {e}")
+            text = r.text
+            is_atom = "<feed" in text
 
-    # Trending coins (hangi coinler konuşuluyor)
-    try:
-        r = await client.get(COINGECKO_TRENDING, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            coins = data.get("coins", [])
-            trending = [c["item"]["symbol"].upper() for c in coins[:10]]
-            if trending:
-                parsed.append({
-                    "title": f"Trending: {', '.join(trending)}",
-                    "url": "",
-                    "source": "CoinGecko Trending",
-                    "ts": time.time(),
-                })
-    except Exception as e:
-        logger.debug(f"CoinGecko trending error: {e}")
+            items = []
+            if is_atom:
+                # Atom: namespace'yi temizle, basit string parse
+                import re
+                titles = re.findall(r'<entry>.*?<title[^>]*>(.*?)</title>', text, re.DOTALL)
+                for t in titles[:15]:
+                    parsed.append({
+                        "title": t.strip()[:200],
+                        "source": feed_url.split("//")[1].split("/")[0],
+                        "ts": time.time(),
+                    })
+            else:
+                # RSS 2.0: regex ile title'ları çek
+                import re
+                titles = re.findall(r'<item>.*?<title[^>]*>(.*?)</title>', text, re.DOTALL)
+                for t in titles[:15]:
+                    parsed.append({
+                        "title": t.strip()[:200],
+                        "source": feed_url.split("//")[1].split("/")[0],
+                        "ts": time.time(),
+                    })
+        except Exception as e:
+            logger.debug(f"RSS error {feed_url}: {e}")
 
     if parsed:
         _news_cache = parsed
         _last_fetch = time.time()
         _symbol_sentiment = _calc_sentiment(parsed)
-        logger.info(f"News: {len(parsed)} items")
+        logger.info(f"News: {len(parsed)} items from RSS")
+    else:
+        logger.warning("News fetch returned 0 items")
 
     return _news_cache
 
 
 def _calc_sentiment(posts):
-    """Haber başlıklarından sentiment çıkar."""
     sentiment = defaultdict(lambda: 0)
-    bullish_kw = ["etf", "adoption", "partnership", "listing", "buyback", "upgrade", "approval", "bull", "rally", "surge"]
-    bearish_kw = ["hack", "exploit", "ban", "regulation", "crackdown", "fraud", "investigation", "delist", "crash", "dump"]
+    bullish_kw = ["etf", "adoption", "partnership", "listing", "buyback", "upgrade", "approval", "bull", "rally", "surge", "ath", "breakthrough", "positive"]
+    bearish_kw = ["hack", "exploit", "ban", "regulation", "crackdown", "fraud", "investigation", "delist", "crash", "dump", "bear", "restriction", "fine"]
 
     for post in posts:
         title = post["title"].lower()
