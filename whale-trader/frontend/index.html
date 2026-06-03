@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Whale Trader</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d0d1a;color:#ddd;font-family:system-ui,sans-serif;padding:20px}
+h1{font-size:1.4rem;margin-bottom:16px;color:#ff8800}
+h2{font-size:1.1rem;margin:16px 0 10px;color:#ccc}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:16px}
+.card{background:#1a1a2e;border-radius:10px;padding:14px;border:1px solid #2a2a4a}
+.card .label{font-size:.75rem;color:#888;margin-bottom:3px}
+.card .value{font-size:1.2rem;font-weight:600}
+.green{color:#00cc77}
+.red{color:#ff4477}
+.orange{color:#ff8800}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+th,td{padding:7px 10px;text-align:left;border-bottom:1px solid #1a1a30}
+th{color:#777;font-weight:500;position:sticky;top:0;background:#1a1a2e}
+.section{background:#141428;border-radius:10px;padding:16px;margin-bottom:16px;border:1px solid #2a2a4a}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600}
+.badge-long{background:#003322;color:#00cc77}
+.badge-short{background:#330011;color:#ff4477}
+.news-bullish{border-left:3px solid #00cc77;padding-left:8px;margin:4px 0}
+.news-bearish{border-left:3px solid #ff4477;padding-left:8px;margin:4px 0}
+.news-neutral{border-left:3px solid #555;padding-left:8px;margin:4px 0}
+.loading{text-align:center;padding:40px;color:#666}
+</style>
+</head>
+<body>
+<h1>🐋 Whale Trader Bot</h1>
+<div class="grid" id="stats"></div>
+<div id="loading" class="loading">Yukleniyor...</div>
+<div id="content" style="display:none">
+  <div class="section">
+    <h2>Sinyaller</h2>
+    <table><thead><tr><th>Sembol</th><th>Sinyal</th><th>Skor</th><th>Olay</th></tr></thead><tbody id="signals-body"></tbody></table>
+  </div>
+  <div class="section">
+    <h2>Aktif Pozisyonlar</h2>
+    <table><thead><tr><th>Sembol</th><th>Yon</th><th>Giris</th><th>PnL</th><th>Kaldirac</th><th>SL</th><th>TP</th></tr></thead><tbody id="positions-body"></tbody></table>
+  </div>
+  <div class="section">
+    <h2>Balina Hareketleri</h2>
+    <table><thead><tr><th>Cuzdan</th><th>Zincir</th><th>Olay</th><th>Deger</th><th>Zaman</th></tr></thead><tbody id="wallet-body"></tbody></table>
+  </div>
+  <div class="section">
+    <h2>Haber Sentiment</h2>
+    <div id="sentiment-body"></div>
+    <h2 style="margin-top:12px">Son Haberler</h2>
+    <div id="news-body"></div>
+  </div>
+  <div class="section">
+    <h2>Son Islemler</h2>
+    <table><thead><tr><th>Sembol</th><th>Yon</th><th>Giris</th><th>Cikis</th><th>PnL</th><th>Sebep</th></tr></thead><tbody id="history-body"></tbody></table>
+  </div>
+</div>
+<script>
+const API = '';
+async function $(u){const r=await fetch(API+u);return r.json()}
+async function update(){
+  try{
+    const [status,positions,history,wallets,news,signals]=await Promise.all([
+      $('/api/status'),$('/api/positions'),$('/api/history'),$('/api/wallets'),$('/api/news'),$('/api/signals')
+    ]);
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+    const c=status.capital||5000,init=5000,pnl=c-init;
+    document.getElementById('stats').innerHTML=`
+      <div class="card"><div class="label">Kasa</div><div class="value ${pnl>=0?'green':'red'}">$${c.toFixed(2)}</div></div>
+      <div class="card"><div class="label">PnL</div><div class="value ${pnl>=0?'green':'red'}">$${pnl.toFixed(2)}</div></div>
+      <div class="card"><div class="label">Aktif</div><div class="value orange">${status.active_positions?status.active_positions.length:0}</div></div>
+      <div class="card"><div class="label">Trade</div><div class="value">${status.total_trades||0}</div></div>
+      <div class="card"><div class="label">Win Rate</div><div class="value green">${status.win_rate||0}%</div></div>
+      <div class="card"><div class="label">Sinyal</div><div class="value orange">${(signals.signals||[]).filter(s=>s.signal!=='WAIT').length}</div></div>
+    `;
+    const sigs=signals.signals||[];
+    document.getElementById('signals-body').innerHTML=sigs.map(s=>`
+      <tr><td>${s.symbol}</td><td><span class="badge ${s.signal==='LONG'?'badge-long':'badge-short'}">${s.signal}</span></td>
+      <td class="${s.score>0?'green':'red'}">${s.score}</td><td>${s.events}</td></tr>
+    `).join('');
+    const poss=positions.positions||[];
+    document.getElementById('positions-body').innerHTML=poss.map(p=>`
+      <tr><td>${p.symbol}</td><td class="${p.side==='LONG'?'green':'red'}">${p.side}</td>
+      <td>$${p.entry_price.toFixed(2)}</td><td class="${p.unrealized_pnl>=0?'green':'red'}">$${p.unrealized_pnl.toFixed(2)}</td>
+      <td>${p.leverage}x</td><td>$${p.sl.toFixed(4)}</td><td>$${p.tp.toFixed(4)}</td></tr>
+    `).join('')||'<tr><td colspan="7" style="text-align:center;color:#555">Yok</td></tr>';
+    const txs=wallets.recent_txs||[];
+    document.getElementById('wallet-body').innerHTML=txs.slice(0,15).map(t=>`
+      <tr><td>${t.label||t.from}</td><td>${t.chain||'-'}</td>
+      <td class="${t.direction==='accumulate'?'green':'red'}">${t.type||t.direction||'-'}</td>
+      <td>${t.value_eth||t.diff_eth||'-'} ETH</td>
+      <td>${t.ts?new Date(t.ts*1000).toLocaleTimeString('tr'):'-'}</td></tr>
+    `).join('')||'<tr><td colspan="5" style="text-align:center;color:#555">Henuz veri yok. Cuzdan ekle ve API key gir.</td></tr>';
+    const sent=new Set();
+    (news.sentiment||[]).slice(0,10).forEach(s=>{
+      sent.add(`<span class="badge ${s.sentiment>0?'badge-long':'badge-short'}">${s.symbol} ${s.sentiment>0?'+':''}${s.sentiment}</span>`);
+    });
+    document.getElementById('sentiment-body').innerHTML=sent.size?[...sent].join(' '):'<span style="color:#555">Veri yok</span>';
+    document.getElementById('news-body').innerHTML=(news.news||[]).slice(0,10).map(n=>{
+      const cls=n.title?((n.title.toLowerCase().includes('bull')||n.title.toLowerCase().includes('etf'))?'news-bullish':
+        (n.title.toLowerCase().includes('hack')||n.title.toLowerCase().includes('ban'))?'news-bearish':'news-neutral'):'news-neutral';
+      return `<div class="${cls}"><small style="color:#888">${n.source||n.domain}</small><br>${n.title||'-'}</div>`;
+    }).join('')||'<span style="color:#555">Haber yok</span>';
+    document.getElementById('history-body').innerHTML=(history.trades||[]).slice(-20).reverse().map(t=>`
+      <tr><td>${t.symbol}</td><td class="${t.side==='LONG'?'green':'red'}">${t.side}</td>
+      <td>$${t.entry.toFixed(2)}</td><td>$${t.exit.toFixed(2)}</td>
+      <td class="${t.pnl>=0?'green':'red'}">$${t.pnl.toFixed(2)}</td><td>${t.reason}</td></tr>
+    `).join('')||'<tr><td colspan="6" style="text-align:center;color:#555">Islem yok</td></tr>';
+  }catch(e){console.error(e)}
+}
+update();
+setInterval(update,5000);
+</script>
+</body>
+</html>
