@@ -4,6 +4,7 @@ Kullanıcının hiçbir şey girmesine gerek yok.
 Bot, zincirdeki büyük transferleri otomatik bulup takibe alır.
 """
 
+import asyncio
 import time
 import logging
 from collections import defaultdict
@@ -17,11 +18,12 @@ _watched_wallets = {}         # address -> {"label": "...", "balance": 0, "first
 _recent_txs = []              # son büyük işlemler
 _all_time_whales = set()      # bugüne kadar tespit edilen tüm balina adresleri
 
-ETHERSCAN_BASE = "https://api.etherscan.io/api"
+ETHERSCAN_BASE = "https://api.etherscan.io/v2/api"
 
 
 async def _get(client, params):
-    """Etherscan API'ye GET isteği."""
+    """Etherscan V2 API'ye GET isteği."""
+    params["chainid"] = 1
     params["apikey"] = config.ETHERSCAN_KEY
     try:
         r = await client.get(ETHERSCAN_BASE, params=params, timeout=15)
@@ -60,7 +62,8 @@ async def scan_for_whales(client):
     if latest == 0:
         return signals
 
-    start_block = max(0, latest - config.BLOCK_RANGE)
+    # Sadece en son 5 bloğu tara (rate limit 5 call/sn, free tier)
+    start_block = max(0, latest - 5)
     logger.debug(f"Scanning blocks {start_block}-{latest}")
 
     for bn in range(latest, start_block, -1):
@@ -131,6 +134,8 @@ async def scan_for_whales(client):
                 "direction": direction,
                 "ts": time.time(),
             })
+
+        await asyncio.sleep(0.3)  # rate limit koruması
 
     # Cache temizlik
     if len(_recent_txs) > 200:

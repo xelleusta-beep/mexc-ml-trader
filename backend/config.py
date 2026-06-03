@@ -32,7 +32,7 @@ class Config:
     # Kaç ETH üzeri transferler "balina" sayılsın?
     WHALE_THRESHOLD_ETH = float(os.getenv("WHALE_THRESHOLD_ETH", 500))
     # Kaç blok geriye taranacak?
-    BLOCK_RANGE = int(os.getenv("BLOCK_RANGE", 100))
+    BLOCK_RANGE = int(os.getenv("BLOCK_RANGE", 5))
     # Aynı anda maksimum kaç balina cüzdan takip edilsin?
     MAX_WATCHED_WALLETS = int(os.getenv("MAX_WATCHED_WALLETS", 50))
 
