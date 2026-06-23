@@ -1,12 +1,15 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional
 import asyncio
 import json
 import datetime
 import threading
+import os
+from pathlib import Path
 
 from mexc_client import get_all_futures_symbols, get_klines
 from indicators import calculate_indicators, calculate_trend_signal, calculate_adx, calculate_atr, calculate_macd, calculate_bollinger_bands, calculate_volume_sma, calculate_stochastic_rsi, calculate_ema
@@ -863,3 +866,16 @@ async def websocket_live(websocket: WebSocket):
     except Exception:
         if websocket in orchestrator.websocket_clients:
             orchestrator.websocket_clients.remove(websocket)
+
+
+FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"
+
+if FRONTEND_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIR / "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(request: Request, full_path: str):
+        file_path = FRONTEND_DIR / full_path
+        if file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(FRONTEND_DIR / "index.html"))
