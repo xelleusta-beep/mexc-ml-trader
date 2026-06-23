@@ -1,27 +1,16 @@
 services:
   - type: web
-    name: mexc-whale-trader
+    name: mexc-ml-trader
     runtime: python
     pythonVersion: "3.11"
     region: frankfurt
     plan: free
-    buildCommand: pip install -r backend/requirements.txt
+    buildCommand: |
+      pip install -r backend/requirements.txt
+      cd frontend && npm install && npm run build
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PERSIST_DIR
         value: /var/data
       - key: WEB_CONCURRENCY
         value: "1"
-      # ETHEREUM API KEY (etherscan.io ucretsiz)
-      # Etherscan API key (etherscan.io ucretsiz)
-      - key: ETHERSCAN_KEY
-        value: ""
-      # TELEGRAM (opsiyonel)
-      - key: TELEGRAM_BOT_TOKEN
-        value: ""
-      - key: TELEGRAM_CHAT_ID
-        value: ""
-    disk:
-      name: whale-data
-      mountPath: /var/data
-      sizeGB: 1

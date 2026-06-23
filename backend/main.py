@@ -1,215 +1,865 @@
-import asyncio
-import gc
-import json
-import time
-import logging
-from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-
-import os
-import hashlib
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from typing import Optional
+import asyncio
+import json
+import datetime
+import threading
 
-from config import config
-from wallet_tracker import scan_for_whales, check_wallet_balances, get_summary as w_summary, get_recent_txs, get_stats as w_stats
-from news_tracker import fetch_news, get_news_feed, get_sentiment_summary, check_symbol_news
-from signal_engine import signal_engine, set_learn_engine
-from trade_executor import execute_signal, check_positions, get_summary as t_summary, active_positions, trade_history, portfolio
-from learn_engine import LearnEngine
+from mexc_client import get_all_futures_symbols, get_klines
+from indicators import calculate_indicators, calculate_trend_signal, calculate_adx, calculate_atr, calculate_macd, calculate_bollinger_bands, calculate_volume_sma, calculate_stochastic_rsi, calculate_ema
+from backtest_engine import BacktestEngine
+from orchestrator import Orchestrator
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger(__name__)
+app = FastAPI(title="MEXC Multi-Agent Trading System")
 
-learn_engine = LearnEngine(config.PERSIST_DIR)
-set_learn_engine(learn_engine)
+orchestrator = Orchestrator()
+orchestrator_task = None
 
-_AUTH_TOKEN = os.getenv("AUTH_TOKEN", "")
-if not _AUTH_TOKEN:
-    _AUTH_TOKEN = hashlib.sha256(os.urandom(16)).hexdigest()[:12]
-    logger.info("AUTH_TOKEN: %s", _AUTH_TOKEN)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-async def send_tg(text):
-    if not config.TG_TOKEN or not config.TG_CHAT:
-        return
+class StrategyParams(BaseModel):
+    rsi_period: int = 21
+    rsi_ma_period: int = 21
+    entry_threshold: float = 30.0
+    exit_threshold_2: float = 50.0
+    exit_threshold_3: float = 70.0
+    exit_pct_1: float = 25.0
+    exit_pct_2: float = 25.0
+    exit_pct_3: float = 50.0
+    entry_amount: float = 1000.0
+    dca_30_amount: float = 3000.0
+    dca_60_amount: float = 6000.0
+    dca_30_drop: float = 0.30
+    dca_60_drop: float = 0.60
+    initial_capital: float = 10000.0
+    maker_fee: float = 0.0002
+    taker_fee: float = 0.0006
+    strategy_mode: str = "rsi"
+    ema_fast_period: int = 20
+    ema_slow_period: int = 50
+    cooldown_bars: int = 1
+    max_dca_trades: int = 2
+    dca_disable_after_exit_pct: float = 50.0
+    require_profit_for_staged_exit: bool = False
+    min_hold_bars: int = 0
+    force_exit_after_bars: int = 0
+    break_even_stop_after_exit_pct: float = 50.0
+    use_adx_filter: bool = False
+    adx_threshold: float = 25.0
+    use_bb_filter: bool = False
+    use_macd_filter: bool = False
+    use_volume_filter: bool = False
+    use_stochrsi_filter: bool = False
+    use_volatility_filter: bool = False
+    max_atr_pct: float = 0.12
+    use_regime_filter: bool = False
+    ema_regime_period: int = 200
+    use_divergence_filter: bool = False
+    divergence_lookback: int = 20
+    use_breakout_confirmation: bool = False
+    use_trailing_stop: bool = False
+    trailing_stop_pct: float = 0.05
+    use_atr_stop: bool = False
+    atr_multiplier: float = 2.0
+
+
+class BacktestRequest(StrategyParams):
+    symbol: str
+    timeframe: str = "1D"
+
+
+class MultiBacktestRequest(StrategyParams):
+    symbols: list[str]
+    timeframe: str = "1D"
+
+
+TIMEFRAME_MAP = {
+    '5m': 'Min5', '15m': 'Min15', '30m': 'Min30',
+    '1h': 'Min60', '4h': 'Hour4', '8h': 'Hour8', '1D': 'Day1',
+}
+
+
+class OptimizeRequest(BaseModel):
+    symbols: list[str]
+    timeframes: list[str] = ["1D"]
+    initial_capital: float = 10000.0
+    entry_amount: float = 1000.0
+    dca_30_amount: float = 3000.0
+    dca_60_amount: float = 6000.0
+    maker_fee: float = 0.0002
+    taker_fee: float = 0.0006
+
+
+class PortfolioRequest(StrategyParams):
+    symbols: list[str]
+    initial_capital: float = 20000.0
+    max_positions: int = 2
+    timeframe: str = "1D"
+
+
+def _timeframe_value(timeframe: str) -> str:
+    return TIMEFRAME_MAP.get(timeframe, "Day1")
+
+
+def _prepare_arrays(klines: list[dict], req: StrategyParams) -> dict:
+    close_prices = [float(k["close"]) for k in klines]
+    high_prices = [float(k.get("high", k["close"])) for k in klines]
+    low_prices = [float(k.get("low", k["close"])) for k in klines]
+    volumes = [float(k.get("vol", 0)) for k in klines]
+
+    rsi, rsi_ma = calculate_indicators(close_prices, req.rsi_period, req.rsi_ma_period)
+
+    adx = calculate_adx(high_prices, low_prices, close_prices, 14) if req.use_adx_filter else None
+    atr = calculate_atr(high_prices, low_prices, close_prices, 14) if req.use_atr_stop or req.use_volatility_filter else None
+    macd_line, macd_signal_line, _ = calculate_macd(close_prices) if req.use_macd_filter else (None, None, None)
+    bb_upper, _, bb_lower = calculate_bollinger_bands(close_prices) if req.use_bb_filter else (None, None, None)
+    volume_sma = calculate_volume_sma(volumes) if req.use_volume_filter else None
+    stoch_k, stoch_d = calculate_stochastic_rsi(close_prices) if req.use_stochrsi_filter else (None, None)
+
+    trend_signals = None
+    if req.strategy_mode in ("trend", "combined"):
+        _, _, trend_signals = calculate_trend_signal(close_prices, req.ema_fast_period, req.ema_slow_period)
+
+    ema_regime = calculate_ema(close_prices, req.ema_regime_period) if req.use_regime_filter else None
+
+    return {
+        "close_prices": close_prices,
+        "high_prices": high_prices,
+        "low_prices": low_prices,
+        "volumes": volumes,
+        "rsi": rsi,
+        "rsi_ma": rsi_ma,
+        "adx": adx,
+        "atr": atr,
+        "macd_line": macd_line,
+        "macd_signal_line": macd_signal_line,
+        "bb_upper": bb_upper,
+        "bb_lower": bb_lower,
+        "volume_sma": volume_sma,
+        "stoch_k": stoch_k,
+        "stoch_d": stoch_d,
+        "trend_signals": trend_signals,
+        "ema_regime": ema_regime,
+    }
+
+
+def _engine_from_request(req: StrategyParams, initial_capital: Optional[float] = None) -> BacktestEngine:
+    return BacktestEngine(
+        initial_capital=req.initial_capital if initial_capital is None else initial_capital,
+        entry_amount=req.entry_amount,
+        dca_30_amount=req.dca_30_amount,
+        dca_60_amount=req.dca_60_amount,
+        entry_threshold=req.entry_threshold,
+        exit_threshold_2=req.exit_threshold_2,
+        exit_threshold_3=req.exit_threshold_3,
+        exit_pct_1=req.exit_pct_1,
+        exit_pct_2=req.exit_pct_2,
+        exit_pct_3=req.exit_pct_3,
+        dca_30_drop=req.dca_30_drop,
+        dca_60_drop=req.dca_60_drop,
+        maker_fee=req.maker_fee,
+        taker_fee=req.taker_fee,
+        strategy_mode=req.strategy_mode,
+        ema_fast_period=req.ema_fast_period,
+        ema_slow_period=req.ema_slow_period,
+        cooldown_bars=req.cooldown_bars,
+        max_dca_trades=req.max_dca_trades,
+        dca_disable_after_exit_pct=req.dca_disable_after_exit_pct,
+        require_profit_for_staged_exit=req.require_profit_for_staged_exit,
+        min_hold_bars=req.min_hold_bars,
+        force_exit_after_bars=req.force_exit_after_bars,
+        break_even_stop_after_exit_pct=req.break_even_stop_after_exit_pct,
+        use_adx_filter=req.use_adx_filter,
+        adx_threshold=req.adx_threshold,
+        use_bb_filter=req.use_bb_filter,
+        use_macd_filter=req.use_macd_filter,
+        use_volume_filter=req.use_volume_filter,
+        use_stochrsi_filter=req.use_stochrsi_filter,
+        use_volatility_filter=req.use_volatility_filter,
+        max_atr_pct=req.max_atr_pct,
+        use_regime_filter=req.use_regime_filter,
+        ema_regime_period=req.ema_regime_period,
+        use_divergence_filter=req.use_divergence_filter,
+        divergence_lookback=req.divergence_lookback,
+        use_breakout_confirmation=req.use_breakout_confirmation,
+        use_trailing_stop=req.use_trailing_stop,
+        trailing_stop_pct=req.trailing_stop_pct,
+        use_atr_stop=req.use_atr_stop,
+        atr_multiplier=req.atr_multiplier,
+    )
+
+
+def _summarize_results(results: list[dict], errors: list[dict], total: int, initial_capital: float) -> dict:
+    total_pnl = sum(r.get("total_pnl", 0) for r in results)
+    total_pnl_pct = (total_pnl / initial_capital) * 100 if initial_capital > 0 else 0
+    avg_win_rate = sum(r.get("win_rate", 0) for r in results) / len(results) if results else 0
+    avg_drawdown = sum(r.get("max_drawdown", 0) for r in results) / len(results) if results else 0
+    avg_profit_factor = sum(r.get("profit_factor", 0) for r in results) / len(results) if results else 0
+    avg_risk_score = sum(r.get("risk_adjusted_score", 0) for r in results) / len(results) if results else 0
+    total_fees = sum(r.get("total_fees", 0) for r in results)
+    best_symbol = max(results, key=lambda x: x.get("total_pnl", 0)) if results else None
+    worst_symbol = min(results, key=lambda x: x.get("total_pnl", 0)) if results else None
+
+    return {
+        "total_symbols": total,
+        "successful": len(results),
+        "failed": len(errors),
+        "total_pnl": total_pnl,
+        "total_pnl_pct": total_pnl_pct,
+        "avg_pnl_per_symbol": total_pnl / len(results) if results else 0,
+        "avg_win_rate": avg_win_rate,
+        "avg_drawdown": avg_drawdown,
+        "avg_profit_factor": avg_profit_factor,
+        "avg_risk_adjusted_score": avg_risk_score,
+        "total_fees": total_fees,
+        "best_symbol": best_symbol.get("symbol") if best_symbol else None,
+        "best_symbol_pnl": best_symbol.get("total_pnl", 0) if best_symbol else 0,
+        "worst_symbol": worst_symbol.get("symbol") if worst_symbol else None,
+        "worst_symbol_pnl": worst_symbol.get("total_pnl", 0) if worst_symbol else 0,
+    }
+
+
+@app.get("/api/symbols")
+async def list_symbols():
+    """Tüm vadeli sembolleri listeler."""
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=10) as c:
-            await c.post(
-                f"https://api.telegram.org/bot{config.TG_TOKEN}/sendMessage",
-                json={"chat_id": config.TG_CHAT, "text": text, "parse_mode": "HTML"},
-            )
+        symbols = await get_all_futures_symbols()
+        return {"symbols": symbols, "count": len(symbols)}
     except Exception as e:
-        logger.error(f"TG error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-async def main_loop():
-    await asyncio.sleep(10)
-    logger.info("Main loop started")
+@app.post("/api/backtest")
+async def run_backtest(req: BacktestRequest):
+    """Tek bir sembol için backtest çalıştırır."""
+    try:
+        klines = await get_klines(req.symbol, _timeframe_value(req.timeframe))
+        if not klines:
+            raise HTTPException(status_code=404, detail=f"{req.symbol} için veri bulunamadı")
 
-    wallet_scan_count = 0
-    news_count = 0
-    balance_check_count = 0
+        arrays = _prepare_arrays(klines, req)
+        engine = _engine_from_request(req)
+        results = engine.run(
+            klines,
+            arrays["rsi"],
+            arrays["rsi_ma"],
+            arrays["trend_signals"],
+            arrays["adx"],
+            arrays["macd_line"],
+            arrays["macd_signal_line"],
+            arrays["bb_upper"],
+            arrays["bb_lower"],
+            arrays["volume_sma"],
+            arrays["stoch_k"],
+            arrays["stoch_d"],
+            arrays["atr"],
+            lows=arrays["low_prices"],
+            ema_regime=arrays["ema_regime"],
+        )
+        results["symbol"] = req.symbol
+        results["timeframe"] = req.timeframe
+        results["total_candles"] = len(klines)
 
-    while True:
+        return results
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/backtest/multi")
+async def run_multi_backtest(req: MultiBacktestRequest):
+    """Birden fazla sembol için backtest çalıştırır."""
+    results = []
+    errors = []
+
+    for symbol in req.symbols:
         try:
-            import httpx
-            async with httpx.AsyncClient(timeout=20, headers={"User-Agent": "WhaleTraderBot/1.0"}) as client:
-                # ── Blok taraması (her SCAN_INTERVAL) ──
-                wallet_scan_count += 1
-                if wallet_scan_count >= max(1, config.SCAN_INTERVAL // config.TRADING_INTERVAL):
-                    wallet_scan_count = 0
-                    logger.info("Scanning blockchain for whale movements...")
-                    sigs = await scan_for_whales(client)
-                    if sigs:
-                        signal_engine.add_wallet_signal(sigs)
-                        for s in sigs[:3]:
-                            msg = f"🐋 {s.get('label', 'Whale')} | {s.get('value_eth', 0)} ETH | {s.get('direction', 'move')}"
-                            logger.info(msg)
-                            asyncio.create_task(send_tg(msg))
+            klines = await get_klines(symbol, _timeframe_value(req.timeframe))
+            if not klines:
+                errors.append({"symbol": symbol, "error": "Veri bulunamadı"})
+                continue
 
-                # ── Bakiye kontrolü (her 2. scan'de) ──
-                balance_check_count += 1
-                if balance_check_count >= 4:
-                    balance_check_count = 0
-                    bal_sigs = await check_wallet_balances(client)
-                    if bal_sigs:
-                        signal_engine.add_wallet_signal(bal_sigs)
-                        for s in bal_sigs[:3]:
-                            msg = f"💰 {s['label']} bakiye degisti: {s['diff_eth']:+.0f} ETH"
-                            logger.info(msg)
+            arrays = _prepare_arrays(klines, req)
+            engine = _engine_from_request(req)
+            result = engine.run(
+                klines,
+                arrays["rsi"],
+                arrays["rsi_ma"],
+                arrays["trend_signals"],
+                arrays["adx"],
+                arrays["macd_line"],
+                arrays["macd_signal_line"],
+                arrays["bb_upper"],
+                arrays["bb_lower"],
+                arrays["volume_sma"],
+                arrays["stoch_k"],
+                arrays["stoch_d"],
+                arrays["atr"],
+                lows=arrays["low_prices"],
+                ema_regime=arrays["ema_regime"],
+            )
+            result["symbol"] = symbol
+            result["timeframe"] = req.timeframe
+            result["total_candles"] = len(klines)
+            results.append(result)
 
-                # ── Haber (her NEWS_INTERVAL) ──
-                news_count += 1
-                if news_count >= max(1, config.NEWS_INTERVAL // config.TRADING_INTERVAL):
-                    news_count = 0
-                    await fetch_news(client)
-                    for sym in config.TRACKED_SYMBOLS:
-                        sentiment = await check_symbol_news(client, sym)
-                        if abs(sentiment) > 0.3:
-                            signal_engine.add_news_signal(sym, sentiment)
-
-                # ── Sinyallere göre işlem ──
-                for sig in signal_engine.get_all_signals():
-                    pos = await execute_signal(client, sig)
-                    if pos:
-                        asyncio.create_task(send_tg(
-                            f"<b>ISLEM: {sig['symbol']}</b>\n"
-                            f"Yon: {sig['signal']} | Skor: {sig['score']}\n"
-                            f"Fiyat: ${pos['entry_price']:.2f} | {pos['leverage']}x"
-                        ))
-
-                # ── Pozisyon kontrol ──
-                closed = await check_positions(client)
-                for c in closed:
-                    learn_engine.record_trade(c)
-                    asyncio.create_task(send_tg(
-                        f"<b>KAPANDI: {c['symbol']}</b>\nPnL: ${c['pnl']:.2f} | {c['reason']}"
-                    ))
+            await asyncio.sleep(0.1)
 
         except Exception as e:
-            logger.error(f"Loop error: {e}")
+            errors.append({"symbol": symbol, "error": str(e)})
 
-        await asyncio.sleep(config.TRADING_INTERVAL)
-
-
-async def gc_loop():
-    while True:
-        await asyncio.sleep(180)
-        gc.collect()
+    return {
+        "results": results,
+        "errors": errors,
+        "summary": _summarize_results(results, errors, len(req.symbols), req.initial_capital),
+    }
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("Whale Trader basliyor...")
-    logger.info(f"Etherscan API: {'VAR' if config.ETHERSCAN_KEY else 'YOK'}")
-    task = asyncio.create_task(main_loop())
-    asyncio.create_task(gc_loop())
-    yield
-    task.cancel()
-    _save_state()
-    logger.info("Shutdown")
+@app.post("/api/portfolio")
+async def run_portfolio_backtest(req: PortfolioRequest):
+    """Tüm coinlerde portföy bazlı, pozisyon limitli simülasyon."""
+    all_klines = {}
+    tf_value = _timeframe_value(req.timeframe)
+    for symbol in req.symbols:
+        try:
+            klines = await get_klines(symbol, tf_value)
+            if klines and len(klines) > 50:
+                all_klines[symbol] = klines
+        except:
+            pass
+
+    if not all_klines:
+        raise HTTPException(status_code=404, detail="Veri bulunamadı")
+
+    coin_signals = []
+    for symbol, klines in all_klines.items():
+        close_prices = [k["close"] for k in klines]
+        rsi, rsi_ma = calculate_indicators(close_prices, req.rsi_period, req.rsi_period)
+
+        for i in range(1, len(klines)):
+            if rsi_ma[i] is None or rsi_ma[i-1] is None:
+                continue
+            if rsi_ma[i-1] >= req.entry_threshold and rsi_ma[i] < req.entry_threshold:
+                coin_signals.append({
+                    "symbol": symbol,
+                    "entry_idx": i,
+                    "entry_price": klines[i]["close"],
+                    "entry_date": klines[i]["time"],
+                    "klines": klines,
+                    "rsi": rsi,
+                    "rsi_ma": rsi_ma,
+                })
+
+    coin_signals.sort(key=lambda x: x["entry_date"])
+
+    capital = req.initial_capital
+    open_positions = []
+    closed_trades = []
+    traded_symbols = set()
+    equity_curve = [{"time": coin_signals[0]["entry_date"] if coin_signals else 0, "equity": capital}]
+    trade_id = 0
+
+    for signal in coin_signals:
+        symbol = signal["symbol"]
+        klines = signal["klines"]
+        rsi = signal["rsi"]
+        rsi_ma = signal["rsi_ma"]
+        entry_idx = signal["entry_idx"]
+
+        if len(open_positions) >= req.max_positions:
+            continue
+
+        if symbol in traded_symbols:
+            continue
+
+        remaining_klines = klines[entry_idx:]
+        remaining_rsi = rsi[entry_idx:]
+        remaining_rsi_ma = rsi_ma[entry_idx:]
+
+        if len(remaining_klines) < 5:
+            continue
+
+        engine = _engine_from_request(req, initial_capital=capital)
+        result = engine.run(remaining_klines, remaining_rsi, remaining_rsi_ma)
+
+        if result["total_trades"] > 0:
+            trade_id += 1
+            pnl = result["total_pnl"]
+            capital += pnl
+            traded_symbols.add(symbol)
+
+            entry_date = signal["entry_date"]
+            close_date = result["closed_trades"][-1]["close_date"] if result["closed_trades"] else 0
+            duration_days = round((close_date - entry_date) / (1000 * 86400)) if close_date > entry_date else 0
+
+            trade_history = []
+            for ct in result["closed_trades"]:
+                for t in ct.get("trades", []):
+                    trade_history.append(t)
+
+            first_ct = result["closed_trades"][0] if result["closed_trades"] else {}
+            last_ct = result["closed_trades"][-1] if result["closed_trades"] else {}
+
+            closed_trades.append({
+                "id": trade_id,
+                "symbol": symbol,
+                "pnl": pnl,
+                "pnl_pct": result["total_pnl_pct"],
+                "win_rate": result["win_rate"],
+                "total_buys": sum(1 for t in trade_history if t["type"] == "buy"),
+                "total_sells": sum(1 for t in trade_history if t["type"] == "sell"),
+                "entry_date": entry_date,
+                "entry_date_str": first_ct.get("entry_date_str", ""),
+                "entry_price": first_ct.get("first_entry_price", 0),
+                "close_date": close_date,
+                "close_date_str": last_ct.get("close_date_str", ""),
+                "close_price": last_ct.get("max_price", 0) if last_ct.get("close_reason") == "sell_70" else signal["klines"][-1]["close"] if signal["klines"] else 0,
+                "close_reason": last_ct.get("close_reason", ""),
+                "duration_days": duration_days,
+                "first_entry_price": first_ct.get("first_entry_price", 0),
+                "avg_price": first_ct.get("avg_price", 0),
+                "max_price": first_ct.get("max_price", 0),
+                "min_price": first_ct.get("min_price", 0),
+                "max_gain_pct": first_ct.get("max_gain_pct", 0),
+                "max_loss_pct": first_ct.get("max_loss_pct", 0),
+                "trade_history": trade_history,
+            })
+
+            equity_curve.append({
+                "time": result["closed_trades"][-1]["close_date"] if result["closed_trades"] else signal["entry_date"],
+                "equity": capital,
+            })
+
+    winning = [t for t in closed_trades if t["pnl"] > 0]
+    losing = [t for t in closed_trades if t["pnl"] <= 0]
+    total_pnl = capital - req.initial_capital
+    first_date = closed_trades[0]["entry_date"] if closed_trades else 0
+    last_date = closed_trades[-1]["close_date"] if closed_trades else 0
+    total_days = round((last_date - first_date) / (1000 * 86400)) if last_date > first_date else 0
+    first_date_str = datetime.datetime.fromtimestamp(first_date / 1000).strftime('%Y-%m-%d') if first_date else ""
+    last_date_str = datetime.datetime.fromtimestamp(last_date / 1000).strftime('%Y-%m-%d') if last_date else ""
+
+    return {
+        "initial_capital": req.initial_capital,
+        "final_capital": capital,
+        "total_pnl": total_pnl,
+        "total_pnl_pct": (total_pnl / req.initial_capital) * 100 if req.initial_capital > 0 else 0,
+        "total_trades": len(closed_trades),
+        "winning_trades": len(winning),
+        "losing_trades": len(losing),
+        "win_rate": len(winning) / len(closed_trades) * 100 if closed_trades else 0,
+        "avg_pnl_per_trade": total_pnl / len(closed_trades) if closed_trades else 0,
+        "best_trade": max(closed_trades, key=lambda x: x["pnl"]) if closed_trades else None,
+        "worst_trade": min(closed_trades, key=lambda x: x["pnl"]) if closed_trades else None,
+        "trades": closed_trades,
+        "equity_curve": equity_curve,
+        "coin_count": len(all_klines),
+        "first_date_str": first_date_str,
+        "last_date_str": last_date_str,
+        "total_days": total_days,
+    }
 
 
-def _save_state():
-    try:
-        os.makedirs(config.PERSIST_DIR, exist_ok=True)
-        path = os.path.join(config.PERSIST_DIR, "state.json")
-        state = {
-            "portfolio": portfolio,
-            "trade_history": list(trade_history),
-            "saved_at": datetime.now(timezone.utc).isoformat(),
-        }
-        with open(path, "w") as f:
-            json.dump(state, f, default=str)
-    except Exception as e:
-        logger.error(f"Save error: {e}")
+@app.post("/api/optimize")
+async def run_optimization(req: OptimizeRequest):
+    """Çoklu zaman dilimi ve parametre optimizasyonu."""
+    param_combos = [
+        {"mode": "rsi", "rsi": 14, "ma": 14, "entry": 30, "e2": 50, "e3": 70, "d1": 0.25, "d2": 0.50, "ep1": 25, "ep2": 25, "ep3": 50, "cool": 1, "regime": True, "vol": True},
+        {"mode": "rsi", "rsi": 21, "ma": 21, "entry": 30, "e2": 50, "e3": 70, "d1": 0.30, "d2": 0.60, "ep1": 25, "ep2": 25, "ep3": 50, "cool": 1, "regime": True, "vol": True},
+        {"mode": "rsi", "rsi": 14, "ma": 14, "entry": 35, "e2": 50, "e3": 70, "d1": 0.25, "d2": 0.50, "ep1": 25, "ep2": 25, "ep3": 50, "cool": 2, "regime": True, "vol": True},
+        {"mode": "rsi", "rsi": 21, "ma": 21, "entry": 40, "e2": 50, "e3": 70, "d1": 0.30, "d2": 0.60, "ep1": 25, "ep2": 25, "ep3": 50, "cool": 2, "regime": True, "vol": True},
+        {"mode": "rsi", "rsi": 14, "ma": 14, "entry": 45, "e2": 55, "e3": 75, "d1": 0.25, "d2": 0.50, "ep1": 25, "ep2": 25, "ep3": 50, "cool": 2, "regime": True, "vol": True},
+        {"mode": "trend", "fast": 10, "slow": 30, "entry": 30, "e2": 50, "e3": 70, "d1": 0.25, "d2": 0.50, "ep1": 25, "ep2": 25, "ep3": 50, "cool": 1, "regime": False, "vol": False},
+        {"mode": "trend", "fast": 20, "slow": 50, "entry": 30, "e2": 50, "e3": 70, "d1": 0.30, "d2": 0.60, "ep1": 25, "ep2": 25, "ep3": 50, "cool": 1, "regime": False, "vol": False},
+        {"mode": "trend", "fast": 9, "slow": 21, "entry": 30, "e2": 50, "e3": 70, "d1": 0.20, "d2": 0.40, "ep1": 25, "ep2": 25, "ep3": 50, "cool": 2, "regime": False, "vol": False},
+        {"mode": "rsi", "rsi": 14, "ma": 14, "entry": 30, "e2": 50, "e3": 70, "d1": 0.25, "d2": 0.50, "ep1": 25, "ep2": 25, "ep3": 50, "cool": 1, "trail": 0.05, "regime": True, "vol": True},
+        {"mode": "rsi", "rsi": 14, "ma": 14, "entry": 35, "e2": 50, "e3": 70, "d1": 0.25, "d2": 0.50, "ep1": 25, "ep2": 25, "ep3": 50, "cool": 2, "trail": 0.08, "regime": True, "vol": True},
+        {"mode": "rsi", "rsi": 21, "ma": 21, "entry": 40, "e2": 55, "e3": 75, "d1": 0.30, "d2": 0.60, "ep1": 25, "ep2": 25, "ep3": 50, "cool": 2, "trail": 0.10, "regime": True, "vol": True},
+        {"mode": "trend", "fast": 10, "slow": 30, "entry": 30, "e2": 50, "e3": 70, "d1": 0.25, "d2": 0.50, "ep1": 25, "ep2": 25, "ep3": 50, "cool": 1, "trail": 0.05, "regime": False, "vol": False},
+        {"mode": "trend", "fast": 20, "slow": 50, "entry": 30, "e2": 50, "e3": 70, "d1": 0.30, "d2": 0.60, "ep1": 25, "ep2": 25, "ep3": 50, "cool": 1, "trail": 0.08, "regime": False, "vol": False},
+    ]
+
+    all_results = []
+
+    for tf_key in req.timeframes:
+        tf_value = TIMEFRAME_MAP.get(tf_key, "Day1")
+        all_klines = {}
+        for symbol in req.symbols:
+            try:
+                klines = await get_klines(symbol, tf_value)
+                if klines and len(klines) > 100:
+                    all_klines[symbol] = klines
+            except:
+                pass
+            await asyncio.sleep(0.05)
+
+        for combo in param_combos:
+            combo_results = []
+            for symbol, klines in all_klines.items():
+                try:
+                    arrays = _prepare_arrays(
+                        klines,
+                        BacktestRequest(
+                            symbol=symbol,
+                            rsi_period=combo["rsi"],
+                            rsi_ma_period=combo["ma"],
+                            entry_threshold=combo["entry"],
+                            exit_threshold_2=combo["e2"],
+                            exit_threshold_3=combo["e3"],
+                            exit_pct_1=combo["ep1"],
+                            exit_pct_2=combo["ep2"],
+                            exit_pct_3=combo["ep3"],
+                            dca_30_drop=combo["d1"],
+                            dca_60_drop=combo["d2"],
+                            strategy_mode=combo["mode"],
+                            ema_fast_period=combo.get("fast", 20),
+                            ema_slow_period=combo.get("slow", 50),
+                            cooldown_bars=combo.get("cool", 1),
+                            use_regime_filter=combo.get("regime", False),
+                            use_volatility_filter=combo.get("vol", False),
+                            use_trailing_stop="trail" in combo,
+                            trailing_stop_pct=combo.get("trail", 0.05),
+                        ),
+                    )
+
+                    engine = BacktestEngine(
+                        initial_capital=req.initial_capital,
+                        entry_amount=req.entry_amount,
+                        dca_30_amount=req.dca_30_amount,
+                        dca_60_amount=req.dca_60_amount,
+                        entry_threshold=combo["entry"],
+                        exit_threshold_2=combo["e2"],
+                        exit_threshold_3=combo["e3"],
+                        exit_pct_1=combo["ep1"],
+                        exit_pct_2=combo["ep2"],
+                        exit_pct_3=combo["ep3"],
+                        dca_30_drop=combo["d1"],
+                        dca_60_drop=combo["d2"],
+                        maker_fee=req.maker_fee,
+                        taker_fee=req.taker_fee,
+                        strategy_mode=combo["mode"],
+                        ema_fast_period=combo.get("fast", 20),
+                        ema_slow_period=combo.get("slow", 50),
+                        cooldown_bars=combo.get("cool", 1),
+                        use_regime_filter=combo.get("regime", False),
+                        use_volatility_filter=combo.get("vol", False),
+                        use_trailing_stop="trail" in combo,
+                        trailing_stop_pct=combo.get("trail", 0.05),
+                    )
+
+                    result = engine.run(
+                        klines,
+                        arrays["rsi"],
+                        arrays["rsi_ma"],
+                        arrays["trend_signals"],
+                        arrays["adx"],
+                        arrays["macd_line"],
+                        arrays["macd_signal_line"],
+                        arrays["bb_upper"],
+                        arrays["bb_lower"],
+                        arrays["volume_sma"],
+                        arrays["stoch_k"],
+                        arrays["stoch_d"],
+                        arrays["atr"],
+                        lows=arrays["low_prices"],
+                        ema_regime=arrays["ema_regime"],
+                    )
+                    if result["total_trades"] > 0:
+                        combo_results.append({
+                            "symbol": symbol,
+                            "pnl": result["total_pnl"],
+                            "pnl_pct": result["total_pnl_pct"],
+                            "trades": result["total_trades"],
+                            "win_rate": result["win_rate"],
+                            "max_drawdown": result["max_drawdown"],
+                            "risk_adjusted_score": result["risk_adjusted_score"],
+                        })
+                except:
+                    pass
+
+            if combo_results:
+                avg_pnl = sum(r["pnl_pct"] for r in combo_results) / len(combo_results)
+                avg_winrate = sum(r["win_rate"] for r in combo_results) / len(combo_results)
+                avg_drawdown = sum(r["max_drawdown"] for r in combo_results) / len(combo_results)
+                avg_risk = sum(r["risk_adjusted_score"] for r in combo_results) / len(combo_results)
+                total_trades = sum(r["trades"] for r in combo_results)
+
+                trail_str = f" + T{combo.get('trail', 0)*100:.0f}%" if "trail" in combo else ""
+                regime_str = " + Regime" if combo.get("regime") else ""
+                vol_str = " + VolGuard" if combo.get("vol") else ""
+                ema_str = f" EMA{combo.get('fast',20)}/{combo.get('slow',50)}" if combo["mode"] == "trend" else ""
+                label = f"{combo['mode']}{ema_str} RSI{combo['rsi']}/{combo['ma']} E={combo['entry']} DCA={combo['d1']:.0%}/{combo['d2']:.0%}{trail_str}{regime_str}{vol_str}"
+
+                all_results.append({
+                    "timeframe": tf_key,
+                    "label": label,
+                    "avg_pnl_pct": round(avg_pnl, 2),
+                    "avg_win_rate": round(avg_winrate, 1),
+                    "avg_drawdown": round(avg_drawdown, 2),
+                    "avg_risk_adjusted_score": round(avg_risk, 2),
+                    "total_trades": total_trades,
+                    "coin_count": len(combo_results),
+                    "coins": [r["symbol"] for r in combo_results],
+                })
+
+    all_results.sort(key=lambda x: x["avg_pnl_pct"], reverse=True)
+    risk_adjusted = sorted(all_results, key=lambda x: x["avg_pnl_pct"] / max(x["avg_drawdown"], 0.1), reverse=True)
+
+    best_per_tf = {}
+    for r in all_results:
+        if r["timeframe"] not in best_per_tf:
+            best_per_tf[r["timeframe"]] = r
+
+    return {
+        "best_by_pnl": all_results[0] if all_results else None,
+        "best_by_risk": risk_adjusted[0] if risk_adjusted else None,
+        "best_per_timeframe": best_per_tf,
+        "all_results": all_results[:50],
+        "total_tests": len(all_results),
+        "risk_adjusted_top10": risk_adjusted[:10],
+    }
 
 
-app = FastAPI(title="Whale Trader Bot", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-
-@app.middleware("http")
-async def auth(request: Request, call_next):
-    if request.method == "GET" or request.url.path.startswith("/static"):
-        return await call_next(request)
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if token != _AUTH_TOKEN:
-        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
-    return await call_next(request)
-
-
-FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
-
-
-@app.get("/")
-async def root():
-    idx = os.path.join(FRONTEND_DIR, "index.html")
-    if os.path.exists(idx):
-        return FileResponse(idx)
+@app.get("/api/health")
+async def health():
     return {"status": "ok"}
 
 
-@app.get("/health")
-async def health():
-    return {"status": "ok", "positions": len(active_positions), "trades": portfolio["total_closed_trades"]}
+@app.post("/api/backtest/stream")
+async def run_backtest_stream(req: MultiBacktestRequest):
+    """Birden fazla sembol için SSE ile canlı ilerleme akışı."""
+    async def event_generator():
+        total = len(req.symbols)
+        results = []
+        errors = []
+        BATCH_SIZE = 50
+
+        yield f"data: {json.dumps({'type': 'progress', 'current': 0, 'total': total, 'percent': 0, 'symbol': '', 'status': 'fetching_data', 'message': f'{total} coin verisi çekiliyor...'})}\n\n"
+
+        all_klines = {}
+        tf_value = _timeframe_value(req.timeframe)
+        for batch_start in range(0, total, BATCH_SIZE):
+            batch = req.symbols[batch_start:batch_start + BATCH_SIZE]
+            tasks = [get_klines(sym, tf_value) for sym in batch]
+            klines_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for sym, klines in zip(batch, klines_results):
+                if isinstance(klines, Exception):
+                    errors.append({"symbol": sym, "error": str(klines)})
+                elif klines:
+                    all_klines[sym] = klines
+                else:
+                    errors.append({"symbol": sym, "error": "Veri bulunamadı"})
+
+            progress_pct = round(((batch_start + len(batch)) / total) * 50, 1)
+            yield f"data: {json.dumps({'type': 'progress', 'current': batch_start + len(batch), 'total': total, 'percent': progress_pct, 'symbol': '', 'status': 'fetching', 'message': f'Veri çekildi: {len(all_klines)}/{total} coin'})}\n\n"
+
+        processed = 0
+        for symbol in req.symbols:
+            if symbol not in all_klines:
+                continue
+
+            klines = all_klines[symbol]
+            try:
+                arrays = _prepare_arrays(klines, req)
+                engine = _engine_from_request(req)
+                result = engine.run(
+                    klines,
+                    arrays["rsi"],
+                    arrays["rsi_ma"],
+                    arrays["trend_signals"],
+                    arrays["adx"],
+                    arrays["macd_line"],
+                    arrays["macd_signal_line"],
+                    arrays["bb_upper"],
+                    arrays["bb_lower"],
+                    arrays["volume_sma"],
+                    arrays["stoch_k"],
+                    arrays["stoch_d"],
+                    arrays["atr"],
+                    lows=arrays["low_prices"],
+                    ema_regime=arrays["ema_regime"],
+                )
+                result["symbol"] = symbol
+                result["timeframe"] = req.timeframe
+                result["total_candles"] = len(klines)
+                results.append(result)
+
+                processed += 1
+                progress_pct = 50 + round((processed / len(all_klines)) * 50, 1)
+                yield f"data: {json.dumps({'type': 'progress', 'current': processed, 'total': len(all_klines), 'percent': progress_pct, 'symbol': symbol, 'status': 'done', 'pnl': result['total_pnl'], 'pnl_pct': result['total_pnl_pct'], 'risk_score': result['risk_adjusted_score']})}\n\n"
+
+            except Exception as e:
+                errors.append({"symbol": symbol, "error": str(e)})
+
+        final_data = {
+            "type": "complete",
+            "results": results,
+            "errors": errors,
+            "summary": _summarize_results(results, errors, total, req.initial_capital),
+        }
+        yield f"data: {json.dumps(final_data)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-@app.get("/api/status")
-async def status():
-    s = t_summary()
-    sigs = signal_engine.get_summary()
-    w = w_stats()
-    return {**s, "signals": sigs, "whale_stats": w}
+# ==================== MULTI-AGENT TRADING SYSTEM ENDPOINTS ====================
+
+@app.get("/api/system/status")
+async def system_status():
+    """Sistem durumunu döndürür."""
+    return orchestrator.get_status()
 
 
-@app.get("/api/positions")
-async def positions():
-    return {"positions": list(active_positions.values())}
+@app.get("/api/agents/status")
+async def agents_status():
+    """Tüm ajanların durumunu döndürür."""
+    status = orchestrator.get_status()
+    return {"agents": status.get("agents", {}), "running": status.get("running", False)}
 
 
-@app.get("/api/history")
-async def history():
-    return {"trades": list(trade_history)}
+@app.get("/api/scanner/hot")
+async def scanner_hot():
+    """En aktif çiftleri döndürür."""
+    try:
+        result = await orchestrator.scanner.analyze({})
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/wallets")
-async def wallets():
-    return {"wallets": w_summary(), "recent_txs": get_recent_txs(20), "stats": w_stats()}
+@app.get("/api/technical/signals")
+async def technical_signals():
+    """Teknik sinyalleri döndürür."""
+    try:
+        scanner_result = await orchestrator.scanner.analyze({})
+        top_pairs = scanner_result.get("hot_pairs", [])[:20]
+        symbols = [p["symbol"] for p in top_pairs]
+        result = await orchestrator.technical.analyze({"symbols": symbols})
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/news")
-async def news():
-    return {"news": get_news_feed(20), "sentiment": get_sentiment_summary()}
+@app.get("/api/sentiment/current")
+async def sentiment_current():
+    """Güncel duygu analizini döndürür."""
+    try:
+        scanner_result = await orchestrator.scanner.analyze({})
+        result = await orchestrator.sentiment.analyze({"scanner": scanner_result})
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/signals")
-async def signals():
-    return {"signals": signal_engine.get_summary()}
+@app.get("/api/risk/metrics")
+async def risk_metrics():
+    """Risk metriklerini döndürür."""
+    try:
+        result = await orchestrator.risk.analyze({
+            "total_equity": orchestrator.total_equity,
+            "open_positions": orchestrator.open_positions,
+        })
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/learn")
-async def learn():
-    return learn_engine.get_summary()
+
+@app.get("/api/portfolio/positions")
+async def portfolio_positions():
+    """Açık pozisyonları döndürür."""
+    return {
+        "positions": orchestrator.get_open_positions(),
+        "total_equity": orchestrator.total_equity,
+        "available_capital": orchestrator.available_capital,
+    }
+
+
+@app.get("/api/patron/decisions")
+async def patron_decisions():
+    """Son patron kararlarını döndürür."""
+    results = orchestrator.get_latest_results()
+    patron_data = results.get("patron", {})
+    return patron_data
+
+
+@app.get("/api/trading/history")
+async def trading_history():
+    """İşlem geçmişini döndürür."""
+    return {"history": orchestrator.get_trade_history()}
+
+
+@app.get("/api/trading/latest")
+async def trading_latest():
+    """Son döngü sonuçlarını döndürür."""
+    return orchestrator.get_latest_results()
+
+
+@app.post("/api/trading/start")
+async def trading_start():
+    """Trading'i başlatır."""
+    global orchestrator_task
+    if orchestrator.running:
+        return {"status": "already_running", "message": "Sistem zaten çalışıyor"}
+
+    orchestrator_task = asyncio.create_task(orchestrator.start())
+    return {"status": "started", "message": "Trading sistemi başlatıldı"}
+
+
+@app.post("/api/trading/stop")
+async def trading_stop():
+    """Trading'i durdurur."""
+    await orchestrator.stop()
+    return {"status": "stopped", "message": "Trading sistemi durduruldu"}
+
+
+@app.post("/api/trading/cycle")
+async def trading_cycle():
+    """Tek bir döngü çalıştırır."""
+    try:
+        result = await orchestrator.run_cycle()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/trading/equity")
+async def update_equity(equity: float):
+    """Toplam sermayeyi günceller."""
+    orchestrator.total_equity = equity
+    orchestrator.available_capital = equity
+    orchestrator.risk.total_equity = equity
+    orchestrator.portfolio.total_equity = equity
+    return {"status": "updated", "equity": equity}
+
+
+@app.websocket("/ws/live")
+async def websocket_live(websocket: WebSocket):
+    """Gerçek zamanlı veri akışı için WebSocket."""
+    await websocket.accept()
+    orchestrator.websocket_clients.append(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text(json.dumps({"type": "pong"}))
+            elif data == "status":
+                status = orchestrator.get_status()
+                await websocket.send_text(json.dumps(status, default=str))
+    except WebSocketDisconnect:
+        if websocket in orchestrator.websocket_clients:
+            orchestrator.websocket_clients.remove(websocket)
+    except Exception:
+        if websocket in orchestrator.websocket_clients:
+            orchestrator.websocket_clients.remove(websocket)
