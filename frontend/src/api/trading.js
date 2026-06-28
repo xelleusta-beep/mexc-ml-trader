@@ -191,8 +191,11 @@ export async function checkBackend() {
 }
 
 export function connectWebSocket(onMessage) {
-  const WS_PORT = 8000;
-  const wsUrl = `ws://localhost:${WS_PORT}/ws/live`;
+  const isDev = window.location.hostname === 'localhost';
+  const wsPort = isDev ? 8000 : '';
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = isDev ? `localhost:${wsPort}` : window.location.host;
+  const wsUrl = `${protocol}//${host}/ws/live`;
   let ws = null;
   let reconnectTimer = null;
   let reconnectDelay = 2000;

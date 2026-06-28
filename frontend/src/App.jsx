@@ -7,17 +7,21 @@ import LivePositions from './components/LivePositions'
 import RiskMetrics from './components/RiskMetrics'
 import TradeHistory from './components/TradeHistory'
 import SettingsPanel from './components/SettingsPanel'
-import { getSystemStatus, getTradingLatest, startTrading, stopTrading, runSingleCycle, connectWebSocket } from './api/trading'
+import { getSystemStatus, getTradingLatest, getTradingHistory, getSentimentCurrent, startTrading, stopTrading, runSingleCycle, connectWebSocket } from './api/trading'
 
 function App() {
   const [systemStatus, setSystemStatus] = useState(null)
   const [latestData, setLatestData] = useState(null)
+  const [tradeHistory, setTradeHistory] = useState([])
+  const [sentimentData, setSentimentData] = useState(null)
   const [isRunning, setIsRunning] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [activeTab, setActiveTab] = useState('dashboard')
   const [wsConnected, setWsConnected] = useState(false)
   const [time, setTime] = useState(new Date())
+  const [prevEquity, setPrevEquity] = useState(null)
+  const [equityFlash, setEquityFlash] = useState(null)
   const wsRef = useRef(null)
 
   const fetchStatus = useCallback(async () => {
@@ -25,21 +29,47 @@ function App() {
       const status = await getSystemStatus()
       setSystemStatus(status)
       setIsRunning(status.running)
-    } catch (e) {}
+    } catch (e) {
+      setError('Sistem durumu alınamadı')
+    }
   }, [])
 
   const fetchLatest = useCallback(async () => {
     try {
       const data = await getTradingLatest()
-      if (data && Object.keys(data).length > 0) setLatestData(data)
+      if (data && Object.keys(data).length > 0) {
+        const newEquity = data.portfolio?.total_equity || data.total_equity
+        if (prevEquity !== null && newEquity && newEquity !== prevEquity) {
+          setEquityFlash(newEquity > prevEquity ? 'up' : 'down')
+          setTimeout(() => setEquityFlash(null), 1500)
+        }
+        if (newEquity) setPrevEquity(newEquity)
+        setLatestData(data)
+      }
+    } catch (e) {}
+  }, [prevEquity])
+
+  const fetchHistory = useCallback(async () => {
+    try {
+      const hist = await getTradingHistory()
+      if (hist?.history) setTradeHistory(hist.history)
+    } catch (e) {}
+  }, [])
+
+  const fetchSentiment = useCallback(async () => {
+    try {
+      const sent = await getSentimentCurrent()
+      setSentimentData(sent)
     } catch (e) {}
   }, [])
 
   useEffect(() => {
-    fetchStatus(); fetchLatest()
-    const interval = setInterval(() => { fetchStatus(); fetchLatest() }, 5000)
+    fetchStatus(); fetchLatest(); fetchHistory(); fetchSentiment()
+    const interval = setInterval(() => {
+      fetchStatus(); fetchLatest(); fetchHistory(); fetchSentiment()
+    }, 5000)
     return () => clearInterval(interval)
-  }, [fetchStatus, fetchLatest])
+  }, [fetchStatus, fetchLatest, fetchHistory, fetchSentiment])
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000)
@@ -69,7 +99,7 @@ function App() {
 
   const handleRunCycle = async () => {
     setLoading(true); setError(null)
-    try { const r = await runSingleCycle(); setLatestData(r); fetchStatus() }
+    try { const r = await runSingleCycle(); setLatestData(r); fetchStatus(); fetchHistory() }
     catch (e) { setError(e.message) } finally { setLoading(false) }
   }
 
@@ -86,71 +116,74 @@ function App() {
 
   const totalEquity = latestData?.portfolio?.total_equity || systemStatus?.total_equity || 10000
   const usedCapital = latestData?.portfolio?.total_exposure_usd || (totalEquity - (latestData?.portfolio?.available_capital || systemStatus?.available_capital || totalEquity))
+  const positionCount = latestData?.positions?.length || latestData?.executed?.length || systemStatus?.open_positions || 0
 
   return (
     <div className="min-h-screen bg-[#030712] grid-bg hex-pattern">
       {/* HEADER */}
       <header className="border-b border-cyan-500/10 bg-[#030712]/90 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-[1920px] mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4 md:gap-6">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/20 to-purple-500/20 border border-cyan-500/30 flex items-center justify-center">
                 <span className="font-orbitron text-lg neon-cyan">M</span>
               </div>
               <div>
-                <h1 className="font-orbitron text-lg font-bold tracking-widest">
+                <h1 className="font-orbitron text-base md:text-lg font-bold tracking-widest">
                   <span className="neon-cyan">MEXC</span>
-                  <span className="text-gray-400 ml-2">TRADING</span>
+                  <span className="text-gray-400 ml-2 hidden sm:inline">TRADING</span>
                   <span className="neon-purple ml-2">NEXUS</span>
                 </h1>
-                <p className="text-sm text-cyan-500/50 tracking-wider">MULTI-AGENT NEURAL NETWORK</p>
+                <p className="text-xs text-cyan-500/50 tracking-wider hidden md:block">MULTI-AGENT NEURAL NETWORK</p>
               </div>
             </div>
 
-            <div className="flex items-center gap-4 ml-4 pl-4 border-l border-cyan-500/10">
+            <div className="flex items-center gap-3 md:gap-4 ml-2 md:ml-4 pl-4 border-l border-cyan-500/10">
               <div className="flex items-center gap-2">
                 <div className={`status-dot ${wsConnected ? 'bg-green-400 text-green-400' : 'bg-red-400 text-red-400'}`} />
-                <span className="text-sm tracking-wider font-semibold" style={{ color: wsConnected ? '#39ff14' : '#ff0040' }}>
+                <span className="text-xs md:text-sm tracking-wider font-semibold" style={{ color: wsConnected ? '#39ff14' : '#ff0040' }}>
                   {wsConnected ? 'ONLINE' : 'OFFLINE'}
                 </span>
               </div>
-              <div className="text-sm text-cyan-500/60 font-semibold">
+              <div className="text-xs md:text-sm text-cyan-500/60 font-semibold hidden sm:block">
                 {formatTime(time)}
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3 md:gap-6">
             {/* EQUITY DISPLAY */}
-            <div className="flex items-center gap-6 px-5 py-2 glass-panel rounded-lg">
+            <div className="flex items-center gap-3 md:gap-6 px-3 md:px-5 py-2 glass-panel rounded-lg">
               <div>
                 <p className="text-label text-cyan-500/60">PORTFÖY</p>
-                <p className="text-value neon-cyan">${totalEquity.toLocaleString()}</p>
+                <p className={`text-value neon-cyan transition-all ${equityFlash === 'up' ? 'flash-green' : equityFlash === 'down' ? 'flash-red' : ''}`}>
+                  ${totalEquity.toLocaleString()}
+                </p>
               </div>
-              <div className="w-px h-8 bg-cyan-500/10" />
-              <div>
+              <div className="w-px h-8 bg-cyan-500/10 hidden sm:block" />
+              <div className="hidden sm:block">
                 <p className="text-label text-green-500/60">KULLANILAN</p>
                 <p className="text-value text-green-400">${usedCapital.toLocaleString()}</p>
               </div>
-              <div className="w-px h-8 bg-cyan-500/10" />
-              <div>
+              <div className="w-px h-8 bg-cyan-500/10 hidden sm:block" />
+              <div className="hidden sm:block">
                 <p className="text-label text-purple-500/60">POZİSYON</p>
-                <p className="text-value neon-purple">{latestData?.portfolio?.position_count || systemStatus?.open_positions || 0}/5</p>
+                <p className="text-value neon-purple">{positionCount}/5</p>
               </div>
             </div>
 
             {/* CONTROLS */}
             <div className="flex items-center gap-2">
               {!isRunning ? (
-                <button onClick={handleStart} disabled={loading} className="btn-neon btn-neon-green">
+                <button onClick={handleStart} disabled={loading} className="btn-neon btn-neon-green text-xs md:text-sm">
                   ▶ BAŞLAT
                 </button>
               ) : (
-                <button onClick={handleStop} disabled={loading} className="btn-neon btn-neon-red">
+                <button onClick={handleStop} disabled={loading} className="btn-neon btn-neon-red text-xs md:text-sm">
                   ■ DURDUR
                 </button>
               )}
-              <button onClick={handleRunCycle} disabled={loading || isRunning} className="btn-neon btn-neon-purple">
+              <button onClick={handleRunCycle} disabled={loading || isRunning} className="btn-neon btn-neon-purple text-xs md:text-sm hidden sm:block">
                 ▷ TEK DÖNGÜ
               </button>
             </div>
@@ -159,13 +192,13 @@ function App() {
       </header>
 
       {/* TABS */}
-      <div className="border-b border-cyan-500/10 bg-[#030712]/80 backdrop-blur-sm">
-        <div className="max-w-[1920px] mx-auto px-4 flex gap-1">
+      <div className="border-b border-cyan-500/10 bg-[#030712]/80 backdrop-blur-sm overflow-x-auto">
+        <div className="max-w-[1920px] mx-auto px-4 flex gap-1 min-w-max">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-5 py-3 text-sm font-bold tracking-wider transition-all border-b-2 flex items-center gap-2 ${
+              className={`px-3 md:px-5 py-3 text-xs md:text-sm font-bold tracking-wider transition-all border-b-2 flex items-center gap-2 whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-cyan-400 text-cyan-400 bg-cyan-500/5'
                   : 'border-transparent text-gray-500 hover:text-gray-300'
@@ -183,29 +216,29 @@ function App() {
         <div className="max-w-[1920px] mx-auto px-4 mt-4">
           <div className="glass-panel glass-panel-red p-4 rounded-lg flex items-center gap-3">
             <span className="neon-red text-lg">⚠</span>
-            <span className="text-red-300 text-base">{error}</span>
-            <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-300 text-lg">✕</button>
+            <span className="text-red-300 text-sm flex-1">{error}</span>
+            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 text-lg px-2">✕</button>
           </div>
         </div>
       )}
 
       {/* MAIN CONTENT */}
-      <main className="max-w-[1920px] mx-auto p-4">
+      <main className="max-w-[1920px] mx-auto p-3 md:p-4">
         {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-12 gap-3">
-            <div className="col-span-3">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div className="md:col-span-3">
               <AgentStatus status={systemStatus} />
             </div>
-            <div className="col-span-5">
+            <div className="md:col-span-5">
               <PatronDecision data={latestData?.patron} />
             </div>
-            <div className="col-span-4">
-              <RiskMetrics data={latestData?.risk} portfolio={latestData?.portfolio} sentiment={latestData?.sentiment} />
+            <div className="md:col-span-4">
+              <RiskMetrics data={latestData?.risk} portfolio={latestData?.portfolio} sentiment={sentimentData || latestData?.sentiment} />
             </div>
-            <div className="col-span-7">
+            <div className="md:col-span-7">
               <LivePositions positions={latestData?.positions || latestData?.executed} portfolio={latestData?.portfolio} />
             </div>
-            <div className="col-span-5">
+            <div className="md:col-span-5">
               <SignalPanel data={latestData?.patron} />
             </div>
           </div>
@@ -213,8 +246,8 @@ function App() {
         {activeTab === 'scanner' && <MarketScanner data={latestData?.scanner} />}
         {activeTab === 'signals' && <SignalPanel data={latestData?.patron} fullPage />}
         {activeTab === 'positions' && <LivePositions positions={latestData?.positions || latestData?.executed} portfolio={latestData?.portfolio} fullPage />}
-        {activeTab === 'history' && <TradeHistory data={latestData} />}
-        {activeTab === 'settings' && <SettingsPanel />}
+        {activeTab === 'history' && <TradeHistory trades={tradeHistory} />}
+        {activeTab === 'settings' && <SettingsPanel isRunning={isRunning} onStart={handleStart} onStop={handleStop} />}
       </main>
     </div>
   )

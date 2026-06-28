@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-export default function SettingsPanel({ isRunning, onStart, onStop }) {
+export default function SettingsPanel({ isRunning = false, onStart = () => {}, onStop = () => {} }) {
   const [settings, setSettings] = useState({
     cycle_interval: 300,
     min_confidence: 0.15,

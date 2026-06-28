@@ -25,8 +25,7 @@ export default function MarketScanner({ data }) {
       {topSymbols.length > 0 ? (
         <div className="space-y-1.5">
           {topSymbols.slice(0, 15).map((sym, i) => {
-            const score = Math.round((sym.hot_score || 0) * 10)
-            const displayScore = Math.min(score, 100)
+            const score = Math.round(Math.min(Math.max(sym.hot_score || 0, 0), 100))
 
             return (
               <div key={i} className="flex items-center gap-3 p-2 rounded bg-black/20 hover:bg-cyan-500/5 transition-colors">
@@ -48,15 +47,15 @@ export default function MarketScanner({ data }) {
                           {sym.change_24h >= 0 ? '+' : ''}{sym.change_24h?.toFixed(2)}%
                         </span>
                       )}
-                      <span className={`font-bold ${getHeatColor(displayScore)}`}>
-                        {displayScore}
+                      <span className={`font-bold ${getHeatColor(score)}`}>
+                        {score}
                       </span>
                     </div>
                   </div>
                   <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-gradient-to-r from-cyan-600 via-purple-500 to-pink-500 rounded-full transition-all duration-700"
-                      style={{ width: `${getBarWidth(displayScore)}%` }}
+                      style={{ width: `${getBarWidth(score)}%` }}
                     />
                   </div>
                 </div>

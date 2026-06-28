@@ -62,6 +62,7 @@ body {
   overflow: hidden;
 }
 
+/* Top neon line via box-shadow (no pseudo element conflict) */
 .glass-panel::before {
   content: '';
   position: absolute;
@@ -69,6 +70,8 @@ body {
   height: 1px;
   background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
   opacity: 0.6;
+  z-index: 1;
+  pointer-events: none;
 }
 
 .glass-panel-purple::before {
@@ -85,6 +88,44 @@ body {
 
 .glass-panel-pink::before {
   background: linear-gradient(90deg, transparent, var(--neon-pink), transparent);
+}
+
+/* ===== CORNER DECORATIONS (using box-shadows to avoid ::before conflict) ===== */
+.corner-deco {
+  position: relative;
+}
+.corner-deco::after {
+  content: '';
+  position: absolute;
+  top: -1px; left: -1px;
+  width: 20px; height: 20px;
+  border-top: 2px solid var(--neon-cyan);
+  border-left: 2px solid var(--neon-cyan);
+  opacity: 0.4;
+  pointer-events: none;
+  z-index: 2;
+  border-radius: 12px 0 0 0;
+}
+
+/* ===== SCAN LINE ===== */
+.scanline {
+  position: relative;
+  overflow: hidden;
+}
+.scanline::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+  animation: scan 3s linear infinite;
+  opacity: 0.4;
+  pointer-events: none;
+  z-index: 3;
+}
+@keyframes scan {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(500px); }
 }
 
 /* ===== HOLOGRAPHIC BORDER ===== */
@@ -110,26 +151,6 @@ body {
 @keyframes holo-shift {
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
-}
-
-/* ===== SCAN LINE ===== */
-.scanline {
-  position: relative;
-  overflow: hidden;
-}
-.scanline::after {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
-  animation: scan 3s linear infinite;
-  opacity: 0.4;
-  pointer-events: none;
-}
-@keyframes scan {
-  0% { transform: translateY(0); }
-  100% { transform: translateY(500px); }
 }
 
 /* ===== GLOW EFFECTS ===== */
@@ -173,11 +194,36 @@ body {
   to { width: 100%; }
 }
 
+@keyframes flash-green {
+  0% { background-color: rgba(57, 255, 20, 0.3); }
+  100% { background-color: transparent; }
+}
+
+@keyframes flash-red {
+  0% { background-color: rgba(255, 0, 64, 0.3); }
+  100% { background-color: transparent; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
 .animate-pulse-neon { animation: pulse-neon 2s ease-in-out infinite; }
 .animate-float { animation: float 3s ease-in-out infinite; }
 .animate-data-flow {
   background-size: 200% 100%;
   animation: data-flow 2s linear infinite;
+}
+.flash-green { animation: flash-green 1.5s ease-out; border-radius: 4px; }
+.flash-red { animation: flash-red 1.5s ease-out; border-radius: 4px; }
+
+/* ===== SKELETON LOADING ===== */
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
 }
 
 /* ===== GRID BACKGROUND ===== */
@@ -211,15 +257,15 @@ body {
 
 /* ===== PROGRESS BARS ===== */
 .progress-bar {
-  height: 4px;
+  height: 6px;
   background: rgba(255,255,255,0.05);
-  border-radius: 2px;
+  border-radius: 3px;
   overflow: hidden;
   position: relative;
 }
 .progress-bar-fill {
   height: 100%;
-  border-radius: 2px;
+  border-radius: 3px;
   position: relative;
   transition: width 0.5s ease;
 }
@@ -232,35 +278,12 @@ body {
   animation: data-flow 1.5s linear infinite;
 }
 
-/* ===== CORNER DECORATIONS ===== */
-.corner-deco {
-  position: relative;
-}
-.corner-deco::before,
-.corner-deco::after {
-  content: '';
-  position: absolute;
-  width: 20px; height: 20px;
-  border-color: var(--neon-cyan);
-  opacity: 0.4;
-}
-.corner-deco::before {
-  top: -1px; left: -1px;
-  border-top: 2px solid;
-  border-left: 2px solid;
-}
-.corner-deco::after {
-  bottom: -1px; right: -1px;
-  border-bottom: 2px solid;
-  border-right: 2px solid;
-}
-
 /* ===== BUTTON STYLES ===== */
 .btn-neon {
   position: relative;
-  padding: 10px 24px;
+  padding: 10px 20px;
   font-family: 'Orbitron', monospace;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -270,11 +293,16 @@ body {
   cursor: pointer;
   overflow: hidden;
   transition: all 0.3s;
-  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+  white-space: nowrap;
 }
 .btn-neon:hover {
   background: rgba(0,240,255,0.1);
   box-shadow: 0 0 20px rgba(0,240,255,0.3), inset 0 0 20px rgba(0,240,255,0.1);
+}
+.btn-neon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 .btn-neon-green {
   border-color: var(--neon-green);
@@ -327,9 +355,37 @@ body {
   align-items: center;
   padding: 2px 10px;
   font-family: 'Rajdhani', sans-serif;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 1px;
   border: 1px solid;
   border-radius: 4px;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 768px) {
+  .glass-panel {
+    border-radius: 8px;
+  }
+  .text-value {
+    font-size: 18px;
+  }
+  .btn-neon {
+    padding: 8px 14px;
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
+}
+
+/* ===== REDUCED MOTION ===== */
+@media (prefers-reduced-motion: reduce) {
+  .scanline::after,
+  .animate-pulse-neon,
+  .status-dot::after,
+  .progress-bar-fill::after {
+    animation: none;
+  }
+  .glass-panel::before {
+    opacity: 0.3;
+  }
 }
