@@ -639,6 +639,45 @@ async def health():
     return {"status": "ok"}
 
 
+ACCESS_KEY = "MEXC2024"
+_system_settings = {
+    "cycle_interval": 300,
+    "min_confidence": 0.15,
+    "max_positions": 5,
+    "risk_per_trade": 2.0,
+    "daily_risk": 5.0,
+    "leverage_max": 20,
+}
+
+
+@app.post("/api/auth/verify")
+async def verify_key(body: dict):
+    key = body.get("key", "")
+    if key == ACCESS_KEY:
+        return {"valid": True}
+    raise HTTPException(status_code=401, detail="Invalid key")
+
+
+@app.get("/api/config")
+async def get_config():
+    return _system_settings
+
+
+@app.post("/api/config")
+async def update_config(body: dict):
+    for k, v in body.items():
+        if k in _system_settings:
+            _system_settings[k] = v
+    return {"status": "ok", "settings": _system_settings}
+
+
+@app.get("/api/test/telegram")
+async def test_telegram():
+    from notifier import _post_telegram
+    await _post_telegram("🧪 MEXC Trading Bot test mesaji - Telegram baglantisi basarili!")
+    return {"status": "sent"}
+
+
 @app.post("/api/backtest/stream")
 async def run_backtest_stream(req: MultiBacktestRequest):
     """Birden fazla sembol için SSE ile canlı ilerleme akışı."""

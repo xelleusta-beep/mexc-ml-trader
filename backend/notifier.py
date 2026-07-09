@@ -4,6 +4,8 @@ import httpx
 
 THREADS_ACCESS_TOKEN = os.environ.get("THREADS_ACCESS_TOKEN", "")
 THREADS_USER_ID = os.environ.get("THREADS_USER_ID", "")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "5869116212:AAEAUTxVifmqDYecqfAn0m9DEv3l5osufDY")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1001685438330")
 
 
 def _format_time(ts):
@@ -38,6 +40,7 @@ async def notify_position_opened(pos: dict):
 """.strip()
 
     await _post_threads(text)
+    await _post_telegram(text)
 
 
 async def notify_position_closed(pos: dict, reason: str):
@@ -68,6 +71,7 @@ async def notify_position_closed(pos: dict, reason: str):
 """.strip()
 
     await _post_threads(text)
+    await _post_telegram(text)
 
 
 async def _post_threads(text: str):
@@ -111,3 +115,29 @@ async def _post_threads(text: str):
 
     except Exception as e:
         print(f"[NOTIFIER] Threads gonderim hatasi: {e}")
+
+
+async def _post_telegram(text: str):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("[NOTIFIER] Telegram token/ID tanimli degil, atlanıyor")
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={
+                    "chat_id": TELEGRAM_CHAT_ID,
+                    "text": text,
+                    "parse_mode": "HTML",
+                },
+            )
+            data = resp.json()
+
+            if data.get("ok"):
+                print(f"[NOTIFIER] Telegram gonderimi basarili: {data['result']['message_id']}")
+            else:
+                print(f"[NOTIFIER] Telegram gonderim hatasi: {data}")
+
+    except Exception as e:
+        print(f"[NOTIFIER] Telegram gonderim hatasi: {e}")

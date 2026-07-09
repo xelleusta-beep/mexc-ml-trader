@@ -14,3 +14,7 @@ services:
         value: /var/data
       - key: WEB_CONCURRENCY
         value: "1"
+      - key: TELEGRAM_BOT_TOKEN
+        value: "5869116212:AAEAUTxVifmqDYecqfAn0m9DEv3l5osufDY"
+      - key: TELEGRAM_CHAT_ID
+        value: "-1001685438330"

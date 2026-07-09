@@ -7,9 +7,11 @@ import LivePositions from './components/LivePositions'
 import RiskMetrics from './components/RiskMetrics'
 import TradeHistory from './components/TradeHistory'
 import SettingsPanel from './components/SettingsPanel'
+import KeyAuth from './components/KeyAuth'
 import { getSystemStatus, getTradingLatest, getTradingHistory, getSentimentCurrent, startTrading, stopTrading, runSingleCycle, connectWebSocket } from './api/trading'
 
 function App() {
+  const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('mexc_auth') === 'true')
   const [systemStatus, setSystemStatus] = useState(null)
   const [latestData, setLatestData] = useState(null)
   const [tradeHistory, setTradeHistory] = useState([])
@@ -17,7 +19,7 @@ function App() {
   const [isRunning, setIsRunning] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [activeTab, setActiveTab] = useState('dashboard')
+  const [activeTab, setActiveTab] = useState('settings')
   const [wsConnected, setWsConnected] = useState(false)
   const [time, setTime] = useState(new Date())
   const [prevEquity, setPrevEquity] = useState(null)
@@ -115,6 +117,10 @@ function App() {
 
   const formatTime = (d) => d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
+  if (!authenticated) {
+    return <KeyAuth onAuthenticated={() => setAuthenticated(true)} />
+  }
+
   const tabs = [
     { id: 'dashboard', label: 'KUMANDA MERKEZİ', icon: '◈' },
     { id: 'scanner', label: 'TARAMA', icon: '◎' },
@@ -195,6 +201,13 @@ function App() {
               )}
               <button onClick={handleRunCycle} disabled={loading || isRunning} className="btn-neon btn-neon-purple text-xs md:text-sm hidden sm:block">
                 ▷ TEK DÖNGÜ
+              </button>
+              <button
+                onClick={() => { localStorage.removeItem('mexc_auth'); setAuthenticated(false) }}
+                className="btn-neon btn-neon-red text-xs md:text-sm ml-2"
+                title="Çıkış"
+              >
+                ◈
               </button>
             </div>
           </div>

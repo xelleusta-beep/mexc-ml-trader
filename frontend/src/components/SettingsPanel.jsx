@@ -10,26 +10,34 @@ export default function SettingsPanel({ isRunning = false, onStart = () => {}, o
     leverage_max: 20,
   })
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     fetch('/api/config')
       .then(r => r.json())
       .then(data => {
-        if (data.cycle_interval) setSettings(s => ({ ...s, ...data }))
+        if (data && Object.keys(data).length > 0) {
+          setSettings(s => ({ ...s, ...data }))
+        }
       })
       .catch(() => {})
   }, [])
 
   const handleSave = async () => {
     setSaving(true)
+    setSaved(false)
     try {
-      await fetch('/api/config', {
+      const resp = await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
       })
+      if (resp.ok) {
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2000)
+      }
     } catch (e) {}
-    setTimeout(() => setSaving(false), 1000)
+    setSaving(false)
   }
 
   return (
@@ -38,6 +46,9 @@ export default function SettingsPanel({ isRunning = false, onStart = () => {}, o
         <div className="flex items-center gap-2">
           <span className="text-pink-400 text-base">⚙</span>
           <span className="text-label text-pink-400/70">SİSTEM AYARLARI</span>
+        </div>
+        <div className={`text-xs font-bold tracking-wider ${saved ? 'text-green-400' : 'text-gray-600'}`}>
+          {saved ? '● KAYDEDİLDİ' : ''}
         </div>
       </div>
 
@@ -88,6 +99,10 @@ export default function SettingsPanel({ isRunning = false, onStart = () => {}, o
                   onChange={e => setSettings({ ...settings, cycle_interval: +e.target.value })}
                   className="w-full accent-purple-500"
                 />
+                <div className="flex justify-between text-xs text-gray-600 mt-1">
+                  <span>60s</span>
+                  <span>600s</span>
+                </div>
               </div>
               <div>
                 <div className="flex justify-between mb-1">
@@ -100,8 +115,30 @@ export default function SettingsPanel({ isRunning = false, onStart = () => {}, o
                   onChange={e => setSettings({ ...settings, min_confidence: +e.target.value })}
                   className="w-full accent-purple-500"
                 />
+                <div className="flex justify-between text-xs text-gray-600 mt-1">
+                  <span>%5</span>
+                  <span>%95</span>
+                </div>
               </div>
             </div>
+          </div>
+
+          {/* Test Telegram */}
+          <div className="bg-black/30 rounded-lg p-4 border border-blue-500/10">
+            <p className="text-label text-blue-400/60 mb-3" style={{ fontSize: '11px' }}>TELEGRAM TEST</p>
+            <button
+              onClick={async () => {
+                try {
+                  await fetch('/api/test/telegram')
+                  alert('Test mesajı gönderildi!')
+                } catch (e) {
+                  alert('Gönderim hatası!')
+                }
+              }}
+              className="w-full py-2 rounded-lg text-sm font-bold tracking-wider neon-btn bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 transition-all"
+            >
+              📱 TELEGRAM TEST GÖNDER
+            </button>
           </div>
         </div>
 
@@ -120,10 +157,7 @@ export default function SettingsPanel({ isRunning = false, onStart = () => {}, o
                   <div className="flex justify-between mb-1">
                     <label className="text-sm text-gray-300 font-semibold">{item.label}</label>
                     <span className={`text-base font-bold ${item.color}`}>
-                      {item.key === 'risk_per_trade' || item.key === 'daily_risk'
-                        ? `${settings[item.key]}${item.suffix}`
-                        : `${settings[item.key]}${item.suffix}`
-                      }
+                      {settings[item.key]}{item.suffix}
                     </span>
                   </div>
                   <input
@@ -133,6 +167,10 @@ export default function SettingsPanel({ isRunning = false, onStart = () => {}, o
                     onChange={e => setSettings({ ...settings, [item.key]: +e.target.value })}
                     className="w-full accent-red-500"
                   />
+                  <div className="flex justify-between text-xs text-gray-600 mt-1">
+                    <span>{item.min}{item.suffix}</span>
+                    <span>{item.max}{item.suffix}</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -141,9 +179,14 @@ export default function SettingsPanel({ isRunning = false, onStart = () => {}, o
           {/* Save */}
           <button
             onClick={handleSave}
-            className="w-full py-3 rounded-lg text-sm font-bold tracking-wider neon-btn bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 transition-all"
+            disabled={saving}
+            className={`w-full py-3 rounded-lg text-sm font-bold tracking-wider transition-all ${
+              saving
+                ? 'bg-gray-800 text-gray-600 cursor-not-allowed border border-gray-700'
+                : 'neon-btn bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20'
+            }`}
           >
-            {saving ? '● KAYDEDİLİYOR...' : '◆ AYARLARI KAYDET'}
+            {saving ? '● KAYDEDİLİYOR...' : saved ? '● BAŞARIYLA KAYDEDİLDİ' : '◆ AYARLARI KAYDET'}
           </button>
         </div>
       </div>
