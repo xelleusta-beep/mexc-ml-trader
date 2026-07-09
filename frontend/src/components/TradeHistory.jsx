@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import TradeDetail from './TradeDetail'
 
 const closeReasonColors = {
   'TP tetiklendi': 'text-green-400 bg-green-500/10 border-green-500/20',
@@ -10,7 +11,10 @@ const closeReasonColors = {
 function formatTimestamp(ts) {
   if (!ts) return ''
   const d = new Date(ts * 1000)
-  return d.toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleString('tr-TR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  })
 }
 
 function formatDuration(entryTs, closeTs) {
@@ -28,6 +32,7 @@ export default function TradeHistory({ trades: tradesProp }) {
   const trades = tradesProp || []
   const [sortBy, setSortBy] = useState('date')
   const [sortDir, setSortDir] = useState('desc')
+  const [selectedTrade, setSelectedTrade] = useState(null)
 
   const totalPnl = trades.reduce((sum, t) => sum + (t.pnl || 0), 0)
   const winning = trades.filter(t => (t.pnl || 0) > 0)
@@ -126,7 +131,8 @@ export default function TradeHistory({ trades: tradesProp }) {
             const duration = formatDuration(trade.entry_time, trade.close_time)
 
             return (
-              <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg bg-black/20 hover:bg-purple-500/5 transition-all border border-white/[0.02]">
+              <div key={i} onClick={() => setSelectedTrade({ ...trade, _index: i })}
+                className="flex items-center gap-3 p-2.5 rounded-lg bg-black/20 hover:bg-purple-500/5 transition-all border border-white/[0.02] cursor-pointer group">
                 <div className={`w-1 h-12 rounded-full ${isProfit ? 'bg-green-500' : pnl < 0 ? 'bg-red-500' : 'bg-gray-500'}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -153,9 +159,11 @@ export default function TradeHistory({ trades: tradesProp }) {
                     <span className="text-gray-600">→</span>
                     <span>Çıkış: ${trade.exit_price?.toFixed(4)}</span>
                     <span className="text-gray-600">${trade.size_usd?.toFixed(0)}</span>
-                    {trade.close_time && (
-                      <span className="text-gray-600 hidden sm:inline">{formatTimestamp(trade.close_time)}</span>
-                    )}
+                  </div>
+                  <div className="flex items-center gap-4 text-[10px] text-gray-500 mt-1">
+                    <span className="text-cyan-400/60">Açılış: {formatTimestamp(trade.entry_time)}</span>
+                    <span className="text-purple-400/60">Kapanış: {formatTimestamp(trade.close_time)}</span>
+                    {duration && <span className="text-gray-600">{duration}</span>}
                   </div>
                 </div>
                 <div className="text-right">
@@ -166,6 +174,7 @@ export default function TradeHistory({ trades: tradesProp }) {
                     {isProfit ? '+' : ''}{trade.pnl_pct?.toFixed(1)}%
                   </p>
                 </div>
+                <span className="text-gray-600 text-xs group-hover:text-cyan-400 transition-colors">◇</span>
               </div>
             )
           })}
@@ -176,6 +185,10 @@ export default function TradeHistory({ trades: tradesProp }) {
           <p className="text-base text-gray-500 font-semibold">Henüz kapanan işlem yok</p>
           <p className="text-sm text-gray-600 mt-2">SL/TP tetiklendiğinde işlemler burada görünecek</p>
         </div>
+      )}
+
+      {selectedTrade && (
+        <TradeDetail trade={selectedTrade} onClose={() => setSelectedTrade(null)} />
       )}
     </div>
   )

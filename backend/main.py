@@ -803,6 +803,45 @@ async def trading_history():
     return {"history": orchestrator.get_trade_history()}
 
 
+@app.get("/api/trade/{trade_index}/klines")
+async def get_trade_klines(trade_index: int):
+    """Belirli bir işlem için 5m mum verisi getirir."""
+    history = orchestrator.get_trade_history()
+    if trade_index < 0 or trade_index >= len(history):
+        raise HTTPException(status_code=404, detail="İşlem bulunamadı")
+
+    trade = history[trade_index]
+    symbol = trade.get("symbol", "")
+    entry_time = trade.get("entry_time", 0)
+    close_time = trade.get("close_time", time.time())
+
+    margin = 300
+    start_ms = int((entry_time - margin) * 1000)
+    end_ms = int((close_time + margin) * 1000)
+
+    try:
+        klines = await get_klines(symbol, "Min5")
+        if not klines:
+            return {"klines": [], "entry_price": trade["entry_price"], "exit_price": trade.get("exit_price", 0),
+                    "entry_time": entry_time, "close_time": close_time,
+                    "direction": trade.get("direction", ""), "close_reason": trade.get("close_reason", "")}
+
+        filtered = [k for k in klines if start_ms <= k.get("time", 0) <= end_ms]
+
+        return {
+            "klines": filtered,
+            "entry_price": trade["entry_price"],
+            "exit_price": trade.get("exit_price", 0),
+            "entry_time": entry_time,
+            "close_time": close_time,
+            "direction": trade.get("direction", ""),
+            "close_reason": trade.get("close_reason", ""),
+            "symbol": symbol,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/trading/latest")
 async def trading_latest():
     """Son döngü sonuçlarını döndürür."""

@@ -1,3 +1,23 @@
+function formatDateTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts * 1000)
+  return d.toLocaleString('tr-TR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  })
+}
+
+function formatDuration(entryTs) {
+  if (!entryTs) return ''
+  const diff = (Date.now() / 1000 - entryTs) * 1000
+  const mins = Math.floor(diff / 60000)
+  const hours = Math.floor(mins / 60)
+  const days = Math.floor(hours / 24)
+  if (days > 0) return `${days}g ${hours % 24}sa`
+  if (hours > 0) return `${hours}sa ${mins % 60}dk`
+  return `${mins}dk`
+}
+
 export default function LivePositions({ data, positions: positionsProp, portfolio, fullPage }) {
   let positions = positionsProp || data?.positions || []
 
@@ -38,11 +58,14 @@ export default function LivePositions({ data, positions: positionsProp, portfoli
             const pnl = pos.unrealized_pnl || 0
             const pnlPct = pos.unrealized_pnl_pct || 0
             const isProfit = pnl >= 0
+            const entryTime = formatDateTime(pos.entry_time)
+            const duration = formatDuration(pos.entry_time)
+            const priceSource = pos.price_source === '1m_kline' ? '1M' : pos.price_source === 'live' ? 'LIVE' : ''
 
             return (
               <div key={i} className={`glass-panel ${dir.bg} ${dir.border} border p-3 rounded-lg transition-all hover:shadow-[0_0_15px_rgba(57,255,20,0.1)]`}>
                 <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-base font-bold text-white">{pos.symbol}</span>
                     <span className={`tag ${dir.border} ${dir.color}`}>{dir.label}</span>
                     <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
@@ -51,6 +74,11 @@ export default function LivePositions({ data, positions: positionsProp, portfoli
                     {pos.patron_score && (
                       <span className="text-xs text-gray-500">
                         Skor: %{(pos.patron_score * 100).toFixed(0)}
+                      </span>
+                    )}
+                    {priceSource && (
+                      <span className="text-[10px] px-1 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                        {priceSource}
                       </span>
                     )}
                   </div>
@@ -64,6 +92,14 @@ export default function LivePositions({ data, positions: positionsProp, portfoli
                   </div>
                 </div>
 
+                {/* Entry Time */}
+                <div className="flex items-center gap-3 text-xs text-gray-400 mb-2 bg-black/20 rounded px-2 py-1">
+                  <span className="text-cyan-400">GİRİŞ:</span>
+                  <span className="text-white font-semibold">{entryTime}</span>
+                  <span className="text-gray-600">|</span>
+                  <span className="text-purple-400">{duration}</span>
+                </div>
+
                 <div className="grid grid-cols-5 gap-1 text-sm">
                   <div className="bg-black/20 rounded p-1.5 text-center">
                     <p className="text-gray-500 text-xs">GİRİŞ</p>
@@ -71,7 +107,7 @@ export default function LivePositions({ data, positions: positionsProp, portfoli
                   </div>
                   <div className="bg-black/20 rounded p-1.5 text-center">
                     <p className="text-gray-500 text-xs">ŞU ANKİ</p>
-                    <p className="text-white">${pos.current_price?.toFixed(4) || pos.entry_price?.toFixed(4)}</p>
+                    <p className="text-white font-bold">${pos.current_price?.toFixed(4) || pos.entry_price?.toFixed(4)}</p>
                   </div>
                   <div className="bg-black/20 rounded p-1.5 text-center">
                     <p className="text-gray-500 text-xs">BOYUT</p>

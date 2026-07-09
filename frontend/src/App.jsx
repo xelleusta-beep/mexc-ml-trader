@@ -68,7 +68,10 @@ function App() {
     const interval = setInterval(() => {
       fetchStatus(); fetchLatest(); fetchHistory(); fetchSentiment()
     }, 5000)
-    return () => clearInterval(interval)
+    const positionInterval = setInterval(() => {
+      fetchLatest()
+    }, 10000)
+    return () => { clearInterval(interval); clearInterval(positionInterval) }
   }, [fetchStatus, fetchLatest, fetchHistory, fetchSentiment])
 
   useEffect(() => {
@@ -80,7 +83,14 @@ function App() {
     wsRef.current = connectWebSocket((data) => {
       if (data.type === 'connected') setWsConnected(true)
       else if (data.type === 'disconnected') setWsConnected(false)
-      else if (data.cycle) setLatestData(data)
+      else if (data.type === 'position_update') {
+        setLatestData(prev => ({
+          ...prev,
+          positions: data.positions,
+          trade_history: data.trade_history,
+          portfolio: data.portfolio,
+        }))
+      } else if (data.cycle) setLatestData(data)
     })
     return () => { if (wsRef.current && wsRef.current.close) wsRef.current.close() }
   }, [])

@@ -6,6 +6,9 @@ from agents import (
     ScannerAgent, TechnicalAgent, SentimentAgent,
     RiskManagerAgent, PortfolioManagerAgent, PatronAgent,
 )
+from mexc_client import get_klines
+from data_store import save_state, load_state
+from notifier import notify_position_opened, notify_position_closed
 
 LOG_DIR = Path(__file__).parent.parent / "data" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -33,12 +36,16 @@ class Orchestrator:
 
         self.websocket_clients: list = []
         self.latest_results: dict = {}
+        self._position_updater_task = None
+
+        self._load_persisted_state()
 
     async def start(self, interval: int = 300):
         self.running = True
         self.total_equity = self.risk.total_equity
         self.available_capital = self.total_equity
         self._log("Orchestrator baslatildi")
+        self._position_updater_task = asyncio.create_task(self._position_updater_loop())
 
         while self.running:
             try:
@@ -52,7 +59,31 @@ class Orchestrator:
 
     async def stop(self):
         self.running = False
+        if self._position_updater_task:
+            self._position_updater_task.cancel()
+        self._persist_state()
         self._log("Orchestrator durduruldu")
+
+    def _load_persisted_state(self):
+        state = load_state()
+        if state:
+            self.trade_history = state.get("trade_history", [])
+            self.open_positions = state.get("open_positions", [])
+            self.total_equity = state.get("total_equity", 10000.0)
+            self.available_capital = state.get("available_capital", 10000.0)
+            self.cycle_count = state.get("cycle_count", 0)
+            self.trade_count = state.get("trade_count", 0)
+            self._log(f"Kalici veri yuklendi: {len(self.trade_history)} islem, {len(self.open_positions)} pozisyon, ${self.total_equity:.2f}")
+
+    def _persist_state(self):
+        save_state(
+            trade_history=self.trade_history,
+            open_positions=self.open_positions,
+            total_equity=self.total_equity,
+            available_capital=self.available_capital,
+            cycle_count=self.cycle_count,
+            trade_count=self.trade_count,
+        )
 
     async def run_cycle(self) -> dict:
         cycle_start = time.time()
@@ -317,6 +348,9 @@ class Orchestrator:
 
             self.patron.log_decision(decision)
             self._log(f"ISLEM ACILDI: {symbol} {direction.upper()} ${position['size_usd']:.0f} x{position['leverage']} @${price} SL:{position['stop_loss']} TP:{position['take_profit']}")
+            asyncio.create_task(notify_position_opened(position))
+
+        self._persist_state()
 
         for pos in list(self.open_positions):
             symbol = pos["symbol"]
@@ -376,6 +410,7 @@ class Orchestrator:
 
         emoji = "+" if pnl_usd >= 0 else ""
         self._log(f"POZISYON KAPATILDI: {symbol} {direction.upper()} @${current} | PnL: {emoji}${pnl_usd:.2f} ({emoji}{leveraged_pnl_pct*100:.1f}%) - {reason}")
+        asyncio.create_task(notify_position_closed(position, reason))
 
     async def _broadcast_update(self, data: dict):
         message = json.dumps(data, default=str)
@@ -399,6 +434,138 @@ class Orchestrator:
                 f.write(log_line + "\n")
         except Exception:
             pass
+
+    async def _position_updater_loop(self):
+        """Her 10 sn'de bir pozisyon fiyatlarini guncelle ve 1dk mum ile TP/SL kontrol et."""
+        while self.running:
+            try:
+                await asyncio.sleep(10)
+                if not self.open_positions:
+                    continue
+
+                await self._fast_update_positions()
+                await self._broadcast_positions_only()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self._log(f"Hizli guncelleme hatasi: {e}")
+                await asyncio.sleep(5)
+
+    async def _fast_update_positions(self):
+        """Acik pozisyonlarin fiyatlarini 1dk mum verisi ile guncelle."""
+        symbols = list(set(p["symbol"] for p in self.open_positions))
+        if not symbols:
+            return
+
+        for symbol in symbols:
+            try:
+                klines = await get_klines(symbol, "Min1")
+                if not klines or len(klines) < 1:
+                    continue
+
+                latest_candle = klines[-1]
+                candle_high = float(latest_candle.get("high", latest_candle.get("close", 0)))
+                candle_low = float(latest_candle.get("low", latest_candle.get("close", 0)))
+                candle_close = float(latest_candle.get("close", 0))
+                candle_open = float(latest_candle.get("open", candle_close))
+
+                for pos in list(self.open_positions):
+                    if pos["symbol"] != symbol:
+                        continue
+
+                    pos["current_price"] = candle_close
+                    pos["price_source"] = "1m_kline"
+                    pos["last_kline_high"] = candle_high
+                    pos["last_kline_low"] = candle_low
+                    pos["last_kline_open"] = candle_open
+                    pos["last_kline_close"] = candle_close
+                    pos["last_update_time"] = time.time()
+
+                    entry = pos["entry_price"]
+                    direction = pos.get("direction", "")
+                    leverage = pos.get("leverage", 1)
+                    size = pos.get("size_usd", 0)
+
+                    if direction == "long":
+                        pnl_pct = (candle_close - entry) / entry if entry > 0 else 0
+                    else:
+                        pnl_pct = (entry - candle_close) / entry if entry > 0 else 0
+
+                    leveraged_pnl_pct = pnl_pct * leverage
+                    pnl_usd = size * leveraged_pnl_pct
+                    pos["unrealized_pnl"] = round(pnl_usd, 2)
+                    pos["unrealized_pnl_pct"] = round(leveraged_pnl_pct * 100, 2)
+
+                    sl = pos.get("stop_loss", 0)
+                    tp = pos.get("take_profit", 0)
+                    close_reason = None
+
+                    if direction == "long":
+                        if sl > 0 and candle_low <= sl:
+                            close_reason = "SL tetiklendi"
+                        elif tp > 0 and candle_high >= tp:
+                            close_reason = "TP tetiklendi"
+                    elif direction == "short":
+                        if sl > 0 and candle_high >= sl:
+                            close_reason = "SL tetiklendi"
+                        elif tp > 0 and candle_low <= tp:
+                            close_reason = "TP tetiklendi"
+
+                    if close_reason:
+                        if close_reason == "TP tetiklendi":
+                            close_price = tp
+                        else:
+                            close_price = sl
+
+                        if direction == "long":
+                            final_pnl_pct = (close_price - entry) / entry if entry > 0 else 0
+                        else:
+                            final_pnl_pct = (entry - close_price) / entry if entry > 0 else 0
+
+                        final_leveraged = final_pnl_pct * leverage
+                        final_usd = size * final_leveraged
+
+                        pos["unrealized_pnl"] = round(final_usd, 2)
+                        pos["unrealized_pnl_pct"] = round(final_leveraged * 100, 2)
+                        pos["current_price"] = close_price
+                        pos["close_price"] = close_price
+                        pos["close_time"] = time.time()
+                        pos["close_reason"] = close_reason
+                        pos["pnl"] = round(final_usd, 2)
+                        pos["pnl_pct"] = round(final_leveraged * 100, 2)
+
+                        self._close_position(pos, close_reason)
+                        self._log(f"1M SL/TP TETIK: {symbol} {close_reason} @${close_price}")
+
+                self._persist_state()
+
+                await asyncio.sleep(0.1)
+            except Exception as e:
+                self._log(f"{symbol} fiyat guncelleme hatasi: {e}")
+
+    async def _broadcast_positions_only(self):
+        """Sadece pozisyon verisini broadcast et (hizli guncelleme icin)."""
+        message = json.dumps({
+            "type": "position_update",
+            "positions": self.open_positions,
+            "trade_history": self.trade_history[-20:],
+            "portfolio": {
+                "total_equity": self.total_equity,
+                "available_capital": self.available_capital,
+                "position_count": len(self.open_positions),
+                "total_exposure_usd": sum(p.get("size_usd", 0) for p in self.open_positions),
+                "total_unrealized_pnl": sum(p.get("unrealized_pnl", 0) for p in self.open_positions),
+            },
+            "timestamp": time.time(),
+        }, default=str)
+        disconnected = []
+        for ws in self.websocket_clients:
+            try:
+                await ws.send_text(message)
+            except Exception:
+                disconnected.append(ws)
+        for ws in disconnected:
+            self.websocket_clients.remove(ws)
 
     def get_status(self) -> dict:
         total_pnl = sum(p.get("unrealized_pnl", 0) for p in self.open_positions)
