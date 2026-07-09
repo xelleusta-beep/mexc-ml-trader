@@ -2,8 +2,8 @@ import os
 import time
 import httpx
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+THREADS_ACCESS_TOKEN = os.environ.get("THREADS_ACCESS_TOKEN", "")
+THREADS_USER_ID = os.environ.get("THREADS_USER_ID", "")
 
 
 def _format_time(ts):
@@ -24,22 +24,20 @@ async def notify_position_opened(pos: dict):
     entry_time = _format_time(pos.get("entry_time"))
 
     emoji = "🟢" if direction == "LONG" else "🔴"
-    dir_emoji = "📈" if direction == "LONG" else "📉"
+    dir_text = "YUKARI" if direction == "LONG" else "ASAGI"
 
-    msg = f"""
-{emoji} <b>YENİ POZİSYON AÇILDI</b> {dir_emoji}
+    text = f"""
+{emoji} YENI POZISYON ACILDI
 
- пар: <b>{symbol}</b>
- yön: <b>{direction}</b>
- giriş: <b>${entry:,.4f}</b>
- boyut: <b>${size:,.0f}</b> x{leverage}
- sl: <b>${sl:,.4f}</b>
- tp: <b>${tp:,.4f}</b>
- skor: <b>%{score*100:.0f}</b>
- tarih: {entry_time}
+ {symbol} / {direction}
+ Giris: ${entry:,.4f}
+ Boyut: ${size:,.0f} x{leverage}
+ SL: ${sl:,.4f} | TP: ${tp:,.4f}
+ Skor: %{score*100:.0f}
+ {entry_time}
 """.strip()
 
-    await _send(msg)
+    await _post_threads(text)
 
 
 async def notify_position_closed(pos: dict, reason: str):
@@ -55,38 +53,61 @@ async def notify_position_closed(pos: dict, reason: str):
 
     is_profit = pnl >= 0
     emoji = "💰" if is_profit else "💔"
-    result = "KAZANÇ" if is_profit else "ZARAR"
+    result = "KAZANC" if is_profit else "ZARAR"
 
-    msg = f"""
-{emoji} <b>POZİSYON KAPATILDI</b> - {result}
+    text = f"""
+{emoji} POZISYON KAPATILDI - {result}
 
- пар: <b>{symbol}</b>
- yön: <b>{direction}</b>
- giriş: <b>${entry:,.4f}</b>
- çıkış: <b>${exit_price:,.4f}</b>
- pnl: <b>{'+' if is_profit else ''}{pnl:,.2f}$</b> ({'+' if is_profit else ''}{pnl_pct:.1f}%)
- boyut: <b>${size:,.0f}</b> x{leverage}
- sebep: <b>{reason}</b>
- tarih: {close_time}
+ {symbol} / {direction}
+ Giris: ${entry:,.4f}
+ Cikis: ${exit_price:,.4f}
+ PnL: {'+' if is_profit else ''}{pnl:,.2f}$ ({'+' if is_profit else ''}{pnl_pct:.1f}%)
+ Boyut: ${size:,.0f} x{leverage}
+ Sebep: {reason}
+ {close_time}
 """.strip()
 
-    await _send(msg)
+    await _post_threads(text)
 
 
-async def _send(text: str):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+async def _post_threads(text: str):
+    if not THREADS_ACCESS_TOKEN or not THREADS_USER_ID:
+        print("[NOTIFIER] Threads token/ID tanimli degin, atlanıyor")
         return
 
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(
-                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-                json={
-                    "chat_id": TELEGRAM_CHAT_ID,
+        async with httpx.AsyncClient(timeout=30) as client:
+            # 1. Medya olustur (text container)
+            create_resp = await client.post(
+                "https://graph.threads.net/v1.0/me/threads",
+                data={
+                    "media_type": "TEXT",
                     "text": text,
-                    "parse_mode": "HTML",
-                    "disable_web_page_preview": True,
+                    "access_token": THREADS_ACCESS_TOKEN,
                 },
             )
+            create_data = create_resp.json()
+
+            if "id" not in create_data:
+                print(f"[NOTIFIER] Threads container olusturma hatasi: {create_data}")
+                return
+
+            container_id = create_data["id"]
+
+            # 2. Yayinla
+            publish_resp = await client.post(
+                "https://graph.threads.net/v1.0/me/threads_publish",
+                data={
+                    "creation_id": container_id,
+                    "access_token": THREADS_ACCESS_TOKEN,
+                },
+            )
+            publish_data = publish_resp.json()
+
+            if "id" in publish_data:
+                print(f"[NOTIFIER] Threads paylasimi basarili: {publish_data['id']}")
+            else:
+                print(f"[NOTIFIER] Threads yayinlama hatasi: {publish_data}")
+
     except Exception as e:
-        print(f"[NOTIFIER] Telegram gonderim hatasi: {e}")
+        print(f"[NOTIFIER] Threads gonderim hatasi: {e}")
