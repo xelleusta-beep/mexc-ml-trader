@@ -12,6 +12,7 @@ import { getSystemStatus, getTradingLatest, getTradingHistory, getSentimentCurre
 
 function App() {
   const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('mexc_auth') === 'true')
+  const [showLogin, setShowLogin] = useState(false)
   const [systemStatus, setSystemStatus] = useState(null)
   const [latestData, setLatestData] = useState(null)
   const [tradeHistory, setTradeHistory] = useState([])
@@ -19,7 +20,7 @@ function App() {
   const [isRunning, setIsRunning] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [activeTab, setActiveTab] = useState('settings')
+  const [activeTab, setActiveTab] = useState('dashboard')
   const [wsConnected, setWsConnected] = useState(false)
   const [time, setTime] = useState(new Date())
   const [prevEquity, setPrevEquity] = useState(null)
@@ -117,18 +118,14 @@ function App() {
 
   const formatTime = (d) => d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
-  if (!authenticated) {
-    return <KeyAuth onAuthenticated={() => setAuthenticated(true)} />
-  }
-
   const tabs = [
-    { id: 'dashboard', label: 'KUMANDA MERKEZİ', icon: '◈' },
-    { id: 'scanner', label: 'TARAMA', icon: '◎' },
-    { id: 'signals', label: 'SİNYALLER', icon: '◇' },
-    { id: 'positions', label: 'POZİSYONLAR', icon: '⬡' },
-    { id: 'history', label: 'GEÇMİŞ', icon: '▣' },
-    { id: 'settings', label: 'AYARLAR', icon: '⚙' },
-  ]
+    { id: 'dashboard', label: 'KUMANDA MERKEZİ', icon: '◈', auth: false },
+    { id: 'scanner', label: 'TARAMA', icon: '◎', auth: false },
+    { id: 'signals', label: 'SİNYALLER', icon: '◇', auth: false },
+    { id: 'positions', label: 'POZİSYONLAR', icon: '⬡', auth: false },
+    { id: 'history', label: 'GEÇMİŞ', icon: '▣', auth: false },
+    { id: 'settings', label: 'AYARLAR', icon: '⚙', auth: true },
+  ].filter(tab => !tab.auth || authenticated)
 
   const totalEquity = latestData?.portfolio?.total_equity || systemStatus?.total_equity || 10000
   const usedCapital = latestData?.portfolio?.total_exposure_usd || (totalEquity - (latestData?.portfolio?.available_capital || systemStatus?.available_capital || totalEquity))
@@ -190,25 +187,36 @@ function App() {
 
             {/* CONTROLS */}
             <div className="flex items-center gap-2">
-              {!isRunning ? (
-                <button onClick={handleStart} disabled={loading} className="btn-neon btn-neon-green text-xs md:text-sm">
-                  ▶ BAŞLAT
-                </button>
+              {authenticated ? (
+                <>
+                  {!isRunning ? (
+                    <button onClick={handleStart} disabled={loading} className="btn-neon btn-neon-green text-xs md:text-sm">
+                      ▶ BAŞLAT
+                    </button>
+                  ) : (
+                    <button onClick={handleStop} disabled={loading} className="btn-neon btn-neon-red text-xs md:text-sm">
+                      ■ DURDUR
+                    </button>
+                  )}
+                  <button onClick={handleRunCycle} disabled={loading || isRunning} className="btn-neon btn-neon-purple text-xs md:text-sm hidden sm:block">
+                    ▷ TEK DÖNGÜ
+                  </button>
+                  <button
+                    onClick={() => { localStorage.removeItem('mexc_auth'); setAuthenticated(false) }}
+                    className="btn-neon btn-neon-red text-xs md:text-sm ml-2"
+                    title="Çıkış"
+                  >
+                    ◈
+                  </button>
+                </>
               ) : (
-                <button onClick={handleStop} disabled={loading} className="btn-neon btn-neon-red text-xs md:text-sm">
-                  ■ DURDUR
+                <button
+                  onClick={() => setShowLogin(true)}
+                  className="btn-neon btn-neon-cyan text-xs md:text-sm"
+                >
+                  🔑 GİRİŞ YAP
                 </button>
               )}
-              <button onClick={handleRunCycle} disabled={loading || isRunning} className="btn-neon btn-neon-purple text-xs md:text-sm hidden sm:block">
-                ▷ TEK DÖNGÜ
-              </button>
-              <button
-                onClick={() => { localStorage.removeItem('mexc_auth'); setAuthenticated(false) }}
-                className="btn-neon btn-neon-red text-xs md:text-sm ml-2"
-                title="Çıkış"
-              >
-                ◈
-              </button>
             </div>
           </div>
         </div>
@@ -270,8 +278,28 @@ function App() {
         {activeTab === 'signals' && <SignalPanel data={latestData?.patron} fullPage />}
         {activeTab === 'positions' && <LivePositions positions={latestData?.positions || latestData?.executed} portfolio={latestData?.portfolio} fullPage />}
         {activeTab === 'history' && <TradeHistory trades={tradeHistory} />}
-        {activeTab === 'settings' && <SettingsPanel isRunning={isRunning} onStart={handleStart} onStop={handleStop} />}
+        {activeTab === 'settings' && authenticated && <SettingsPanel isRunning={isRunning} onStart={handleStart} onStop={handleStop} />}
       </main>
+
+      {/* LOGIN MODAL */}
+      {showLogin && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="relative">
+            <button
+              onClick={() => setShowLogin(false)}
+              className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-gray-800 border border-gray-600 text-gray-400 hover:text-white hover:border-red-500 transition-all flex items-center justify-center z-10"
+            >
+              ✕
+            </button>
+            <KeyAuth
+              onAuthenticated={() => {
+                setAuthenticated(true)
+                setShowLogin(false)
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
