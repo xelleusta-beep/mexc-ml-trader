@@ -10,6 +10,17 @@ BASE_URL = "https://api.mexc.co"
 CACHE_DIR = Path(__file__).parent.parent / "data" / "cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+STOCK_KEYWORDS = {"STOCK", "ETF", "BOND", "FUND", "INDEX", "FUTURES"}
+
+
+def _is_stock_symbol(symbol: str, base_coin: str) -> bool:
+    sym_upper = symbol.upper()
+    base_upper = base_coin.upper()
+    for kw in STOCK_KEYWORDS:
+        if kw in sym_upper or kw in base_upper:
+            return True
+    return False
+
 # Connection pooling için global client
 _client: Optional[httpx.AsyncClient] = None
 
@@ -46,9 +57,13 @@ async def get_all_futures_symbols() -> list[dict]:
     symbols = []
     for item in data.get("data", []):
         if item.get("futureType") == 1 and item.get("quoteCoin") == "USDT":
+            sym = item["symbol"]
+            base = item.get("baseCoin", "")
+            if _is_stock_symbol(sym, base):
+                continue
             symbols.append({
-                "symbol": item["symbol"],
-                "baseCoin": item.get("baseCoin", ""),
+                "symbol": sym,
+                "baseCoin": base,
                 "displayNameEn": item.get("displayNameEn", ""),
                 "priceScale": item.get("priceScale", 4),
                 "volScale": item.get("volScale", 0),

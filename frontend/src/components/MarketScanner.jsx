@@ -1,5 +1,13 @@
+const STOCK_KEYWORDS = ['STOCK', 'ETF', 'BOND', 'FUND', 'INDEX', 'FUTURES']
+
+function isStockSymbol(symbol, baseCoin) {
+  const sym = (symbol || '').toUpperCase()
+  const base = (baseCoin || '').toUpperCase()
+  return STOCK_KEYWORDS.some(kw => sym.includes(kw) || base.includes(kw))
+}
+
 export default function MarketScanner({ data }) {
-  const topSymbols = data?.hot_pairs || []
+  const topSymbols = (data?.hot_pairs || []).filter(s => !isStockSymbol(s.symbol, s.baseCoin))
 
   const getHeatColor = (score) => {
     if (score >= 80) return 'neon-green'

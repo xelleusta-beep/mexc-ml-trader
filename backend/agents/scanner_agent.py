@@ -20,6 +20,8 @@ MOCK_PRICES = {
 
 
 class ScannerAgent(BaseAgent):
+    STOCK_KEYWORDS = {"STOCK", "ETF", "BOND", "FUND", "INDEX", "FUTURES"}
+
     def __init__(self):
         super().__init__("Scanner")
         self.all_symbols: list[dict] = []
@@ -28,6 +30,14 @@ class ScannerAgent(BaseAgent):
         self.volume_leaders: list[dict] = []
         self.tickers: dict[str, dict] = {}
         self._client: httpx.AsyncClient | None = None
+
+    def _is_stock_symbol(self, symbol: str, base_coin: str) -> bool:
+        sym_upper = symbol.upper()
+        base_upper = base_coin.upper()
+        for kw in self.STOCK_KEYWORDS:
+            if kw in sym_upper or kw in base_upper:
+                return True
+        return False
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -84,9 +94,13 @@ class ScannerAgent(BaseAgent):
                 self.all_symbols = []
                 for item in raw:
                     if item.get("futureType") == 1 and item.get("quoteCoin") == "USDT":
+                        sym = item["symbol"]
+                        base = item.get("baseCoin", "")
+                        if self._is_stock_symbol(sym, base):
+                            continue
                         self.all_symbols.append({
-                            "symbol": item["symbol"],
-                            "baseCoin": item.get("baseCoin", ""),
+                            "symbol": sym,
+                            "baseCoin": base,
                             "displayNameEn": item.get("displayNameEn", ""),
                             "priceScale": item.get("priceScale", 4),
                             "volScale": item.get("volScale", 0),

@@ -1,5 +1,12 @@
 import { useState } from 'react'
 
+const STOCK_KEYWORDS = ['STOCK', 'ETF', 'BOND', 'FUND', 'INDEX', 'FUTURES']
+
+function isStockSymbol(symbol) {
+  const sym = (symbol || '').toUpperCase()
+  return STOCK_KEYWORDS.some(kw => sym.includes(kw))
+}
+
 const dirConfig = {
   long: { label: 'LONG', color: 'neon-green', border: 'border-green-500/30', bg: 'bg-green-500/5' },
   short: { label: 'SHORT', color: 'neon-red', border: 'border-red-500/30', bg: 'bg-red-500/5' },
@@ -15,7 +22,7 @@ const confConfig = {
 }
 
 export default function SignalPanel({ data, fullPage }) {
-  const decisions = data?.decisions || data?.top_picks || []
+  const decisions = (data?.decisions || data?.top_picks || []).filter(d => !isStockSymbol(d.symbol))
   const approved = decisions.filter(d => d.approved)
   const rejected = decisions.filter(d => !d.approved)
   const [expandedSignal, setExpandedSignal] = useState(null)
