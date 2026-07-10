@@ -7,8 +7,8 @@ class PortfolioManagerAgent(BaseAgent):
         super().__init__("PortfolioManager")
         self.open_positions: list[dict] = []
         self.trade_history: list[dict] = []
-        self.total_equity = 10000.0
-        self.available_capital = 10000.0
+        self.total_equity = 100.0
+        self.available_capital = 100.0
         self.max_positions = 5
         self.max_per_position_pct = 0.25
 

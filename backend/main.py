@@ -39,12 +39,12 @@ class StrategyParams(BaseModel):
     exit_pct_1: float = 25.0
     exit_pct_2: float = 25.0
     exit_pct_3: float = 50.0
-    entry_amount: float = 1000.0
-    dca_30_amount: float = 3000.0
-    dca_60_amount: float = 6000.0
+    entry_amount: float = 50.0
+    dca_30_amount: float = 150.0
+    dca_60_amount: float = 300.0
     dca_30_drop: float = 0.30
     dca_60_drop: float = 0.60
-    initial_capital: float = 10000.0
+    initial_capital: float = 100.0
     maker_fee: float = 0.0002
     taker_fee: float = 0.0006
     strategy_mode: str = "rsi"
@@ -95,10 +95,10 @@ TIMEFRAME_MAP = {
 class OptimizeRequest(BaseModel):
     symbols: list[str]
     timeframes: list[str] = ["1D"]
-    initial_capital: float = 10000.0
-    entry_amount: float = 1000.0
-    dca_30_amount: float = 3000.0
-    dca_60_amount: float = 6000.0
+    initial_capital: float = 100.0
+    entry_amount: float = 50.0
+    dca_30_amount: float = 150.0
+    dca_60_amount: float = 300.0
     maker_fee: float = 0.0002
     taker_fee: float = 0.0006
 

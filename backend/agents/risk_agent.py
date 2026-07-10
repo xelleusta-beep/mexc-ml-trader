@@ -13,7 +13,7 @@ class RiskManagerAgent(BaseAgent):
         self.daily_start_equity = 0.0
         self.last_daily_reset = 0
         self.open_positions: list[dict] = []
-        self.total_equity = 10000.0
+        self.total_equity = 100.0
 
     async def analyze(self, data: dict) -> dict:
         try:
