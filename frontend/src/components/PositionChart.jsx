@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { createChart } from 'lightweight-charts'
+import { createChart, CandlestickSeries, HistogramSeries } from 'lightweight-charts'
 import { getPositionKlines } from '../api/trading'
 
 export default function PositionChart({ symbol, onClose }) {
@@ -31,22 +31,14 @@ export default function PositionChart({ symbol, onClose }) {
           vertLines: { color: 'rgba(42, 46, 57, 0.4)' },
           horzLines: { color: 'rgba(42, 46, 57, 0.4)' },
         },
-        crosshair: {
-          mode: 0,
-        },
-        rightPriceScale: {
-          borderColor: 'rgba(42, 46, 57, 0.6)',
-        },
-        timeScale: {
-          borderColor: 'rgba(42, 46, 57, 0.6)',
-          timeVisible: true,
-          secondsVisible: false,
-        },
+        crosshair: { mode: 0 },
+        rightPriceScale: { borderColor: 'rgba(42, 46, 57, 0.6)' },
+        timeScale: { borderColor: 'rgba(42, 46, 57, 0.6)', timeVisible: true, secondsVisible: false },
       })
 
       if (disposed) { chart.remove(); return }
 
-      candleSeries = chart.addCandlestickSeries({
+      candleSeries = chart.addSeries(CandlestickSeries, {
         upColor: '#00ff88',
         downColor: '#ff3366',
         borderDownColor: '#ff3366',
@@ -55,7 +47,7 @@ export default function PositionChart({ symbol, onClose }) {
         wickUpColor: '#00ff88',
       })
 
-      volumeSeries = chart.addHistogramSeries({
+      volumeSeries = chart.addSeries(HistogramSeries, {
         priceFormat: { type: 'volume' },
         priceScaleId: 'vol',
       })
@@ -63,7 +55,7 @@ export default function PositionChart({ symbol, onClose }) {
         scaleMargins: { top: 0.85, bottom: 0 },
       })
 
-      chartRef.current = chart
+      chartRef.current = { chart, candleSeries, volumeSeries }
 
       resizeObs = new ResizeObserver(entries => {
         if (entries[0] && chart) {
@@ -162,10 +154,9 @@ export default function PositionChart({ symbol, onClose }) {
 
   useEffect(() => {
     if (!chartRef.current || !symbol) return
+    const { chart, candleSeries, volumeSeries } = chartRef.current
     const iv = setInterval(() => {
-      if (!chartRef.current) return
-      const cs = chartRef.current.series || []
-      loadData(symbol, chartRef.current, cs[0], cs[1])
+      loadData(symbol, chart, candleSeries, volumeSeries)
     }, 10000)
     return () => clearInterval(iv)
   }, [symbol])
