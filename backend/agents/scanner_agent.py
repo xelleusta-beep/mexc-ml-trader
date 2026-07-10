@@ -150,18 +150,18 @@ class ScannerAgent(BaseAgent):
                 last_price = float(ticker.get("lastPrice", 0) or 0)
                 volume_24h = float(ticker.get("volume24h", 0) or 0)
                 change_24h = float(ticker.get("change24h", 0) or 0)
-                high_24h = float(ticker.get("highPrice", 0) or 0)
-                low_24h = float(ticker.get("lowPrice", 0) or 0)
+                high_24h = float(ticker.get("highPrice", 0) or ticker.get("h24High", 0) or 0)
+                low_24h = float(ticker.get("lowPrice", 0) or ticker.get("h24Low", 0) or 0)
                 bid = float(ticker.get("bid1Price", 0) or 0)
                 ask = float(ticker.get("ask1Price", 0) or 0)
 
-                if last_price <= 0:
+                if last_price <= 0 or volume_24h <= 0:
                     continue
 
-                volatility = (high_24h - low_24h) / last_price if high_24h > 0 and low_24h > 0 else 0
-
-                if volatility < 0.01:
-                    continue
+                if high_24h > 0 and low_24h > 0:
+                    volatility = (high_24h - low_24h) / last_price
+                else:
+                    volatility = abs(change_24h) / 100 if change_24h != 0 else 0.02
 
                 spread_pct = (ask - bid) / bid if bid > 0 and ask > 0 else 0
 
