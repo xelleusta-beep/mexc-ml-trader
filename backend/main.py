@@ -678,6 +678,34 @@ async def test_telegram():
     return {"status": "sent"}
 
 
+@app.get("/api/test/telegram-chart")
+async def test_telegram_chart():
+    """Telegram'a ornek grafik gonderir (test)."""
+    from notifier import generate_chart_svg, send_telegram_photo
+    from mexc_client import get_klines
+
+    test_symbols = ["BTC_USDT", "ETH_USDT", "SOL_USDT"]
+    for sym in test_symbols:
+        try:
+            klines = await get_klines(sym, "Min5")
+            if klines and len(klines) > 30:
+                svg = generate_chart_svg(
+                    klines[-60:], "long",
+                    entry_price=float(klines[-40]["close"]),
+                    exit_price=float(klines[-1]["close"]),
+                    tp=float(klines[-40]["close"]) * 1.03,
+                    sl=float(klines[-40]["close"]) * 0.98,
+                )
+                if svg:
+                    caption = f"🧪 TEST GRAFİK - {sym} LONG\nGiriş: ${float(klines[-40]['close']):.2f} → Çıkış: ${float(klines[-1]['close']):.2f}\n🏆 Kar/Zarar testi"
+                    await send_telegram_photo(svg, caption)
+                    return {"status": "sent", "symbol": sym}
+        except Exception as e:
+            continue
+
+    return {"status": "error", "message": "Grafik olusturulamadi"}
+
+
 @app.post("/api/backtest/stream")
 async def run_backtest_stream(req: MultiBacktestRequest):
     """Birden fazla sembol için SSE ile canlı ilerleme akışı."""

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { createChart, CandlestickSeries, HistogramSeries } from 'lightweight-charts'
+import { createChart, CandlestickSeries, HistogramSeries, createSeriesMarkers } from 'lightweight-charts'
 import { getPositionKlines } from '../api/trading'
 
 export default function PositionChart({ symbol, onClose }) {
   const containerRef = useRef(null)
   const chartRef = useRef(null)
+  const markersPluginRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [info, setInfo] = useState(null)
@@ -55,6 +56,7 @@ export default function PositionChart({ symbol, onClose }) {
         scaleMargins: { top: 0.85, bottom: 0 },
       })
 
+      markersPluginRef.current = createSeriesMarkers(candleSeries, [])
       chartRef.current = { chart, candleSeries, volumeSeries }
 
       resizeObs = new ResizeObserver(entries => {
@@ -78,6 +80,7 @@ export default function PositionChart({ symbol, onClose }) {
         try { chart.remove() } catch {}
       }
       chartRef.current = null
+      markersPluginRef.current = null
     }
   }, [symbol])
 
@@ -142,6 +145,34 @@ export default function PositionChart({ symbol, onClose }) {
           axisLabelVisible: true,
           title: 'SL',
         })
+      }
+
+      const dir = data.direction || 'long'
+      const entryTime = data.klines.length > 0
+        ? Math.floor(data.klines[Math.floor(data.klines.length * 0.3)].time / 1000)
+        : Math.floor(data.klines[0].time / 1000)
+
+      const entryMarker = {
+        time: entryTime,
+        position: dir === 'long' ? 'belowBar' : 'aboveBar',
+        color: dir === 'long' ? '#00ff88' : '#ff3366',
+        shape: dir === 'long' ? 'arrowUp' : 'arrowDown',
+        text: dir.toUpperCase(),
+      }
+
+      const markers = [entryMarker]
+      if (data.close_price) {
+        markers.push({
+          time: Math.floor((data.close_time || Date.now() / 1000)),
+          position: dir === 'long' ? 'aboveBar' : 'belowBar',
+          color: '#ffd700',
+          shape: 'circle',
+          text: '🏆',
+        })
+      }
+
+      if (markersPluginRef.current) {
+        markersPluginRef.current.setMarkers(markers)
       }
 
       chart.timeScale().fitContent()
@@ -230,6 +261,15 @@ export default function PositionChart({ symbol, onClose }) {
           </span>
           <span className="flex items-center gap-1">
             <span className="w-3 h-0.5 bg-red-400 inline-block rounded" /> SL
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="text-xs">▲</span> LONG GİRİŞ
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="text-xs">▼</span> SHORT GİRİŞ
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="text-xs">🏆</span> ÇIKIŞ
           </span>
           <span className="ml-auto">5m mum • 10sn canlı yenileme</span>
         </div>
