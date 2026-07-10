@@ -6,7 +6,7 @@ from agents import (
     ScannerAgent, TechnicalAgent, SentimentAgent,
     RiskManagerAgent, PortfolioManagerAgent, PatronAgent,
 )
-from mexc_client import get_klines, get_client
+from mexc_client import get_klines, get_client, futures_submit_order, futures_set_leverage, futures_get_positions, futures_get_assets, futures_get_contract_info, calc_contract_vol
 from data_store import save_state, load_state
 from notifier import notify_position_opened, notify_position_closed
 
@@ -31,8 +31,8 @@ class Orchestrator:
 
         self.open_positions: list[dict] = []
         self.trade_history: list[dict] = []
-        self.total_equity = 10000.0
-        self.available_capital = 10000.0
+        self.total_equity = 100.0
+        self.available_capital = 100.0
 
         self.websocket_clients: list = []
         self.latest_results: dict = {}
