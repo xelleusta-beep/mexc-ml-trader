@@ -69,11 +69,18 @@ class Orchestrator:
         if state:
             self.trade_history = state.get("trade_history", [])
             self.open_positions = state.get("open_positions", [])
-            self.total_equity = state.get("total_equity", 10000.0)
-            self.available_capital = state.get("available_capital", 10000.0)
+            self.total_equity = state.get("total_equity", 100.0)
+            self.available_capital = state.get("available_capital", 100.0)
             self.cycle_count = state.get("cycle_count", 0)
             self.trade_count = state.get("trade_count", 0)
-            self._log(f"Kalici veri yuklendi: {len(self.trade_history)} islem, {len(self.open_positions)} pozisyon, ${self.total_equity:.2f}")
+            if self.total_equity > 200:
+                self.total_equity = 100.0
+                self.available_capital = 100.0
+                self.open_positions = []
+                self.trade_history = []
+                self._log("Eski state temizlendi - $100 kasa ile baslatildi")
+            else:
+                self._log(f"Kalici veri yuklendi: {len(self.trade_history)} islem, {len(self.open_positions)} pozisyon, ${self.total_equity:.2f}")
 
     def _persist_state(self):
         save_state(
