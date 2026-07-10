@@ -937,6 +937,7 @@ async def get_position_klines(symbol: str):
             "stop_loss": position.get("stop_loss", 0) if position else 0,
             "direction": position.get("direction", "") if position else "",
             "current_price": position.get("current_price", 0) if position else 0,
+            "entry_time": position.get("entry_time", 0) if position else 0,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

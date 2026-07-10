@@ -72,18 +72,18 @@ def generate_chart_svg(klines: list, direction: str, entry_price: float, exit_pr
 
     if entry_price > 0:
         ey = y(entry_price)
-        svg_parts.append(f'<line x1="{PAD}" y1="{ey}" x2="{W-PAD}" y2="{ey}" stroke="#00d4ff" stroke-width="1.5" stroke-dasharray="4,3"/>')
+        svg_parts.append(f'<line x1="{PAD}" y1="{ey}" x2="{W-PAD}" y2="{ey}" stroke="#ff9800" stroke-width="2" stroke-dasharray="0"/>')
         marker = "▲" if direction == "long" else "▼"
-        svg_parts.append(f'<text x="{W-PAD+5}" y="{ey+4}" fill="#00d4ff" font-size="11" font-family="monospace">{marker} GİRİŞ ${entry_price:.4f}</text>')
+        svg_parts.append(f'<text x="{W-PAD+5}" y="{ey+4}" fill="#ff9800" font-size="11" font-family="monospace" font-weight="bold">{marker} GİRİŞ ${entry_price:.4f}</text>')
 
     if tp > 0:
         ty = y(tp)
-        svg_parts.append(f'<line x1="{PAD}" y1="{ty}" x2="{W-PAD}" y2="{ty}" stroke="#00ff88" stroke-width="1" stroke-dasharray="2,3"/>')
-        svg_parts.append(f'<text x="{W-PAD+5}" y="{ty+4}" fill="#00ff88" font-size="9" font-family="monospace">TP ${tp:.4f}</text>')
+        svg_parts.append(f'<line x1="{PAD}" y1="{ty}" x2="{W-PAD}" y2="{ty}" stroke="#76d672" stroke-width="2" stroke-dasharray="0"/>')
+        svg_parts.append(f'<text x="{W-PAD+5}" y="{ty+4}" fill="#76d672" font-size="9" font-family="monospace">TP ${tp:.4f}</text>')
 
     if sl > 0:
         sy = y(sl)
-        svg_parts.append(f'<line x1="{PAD}" y1="{sy}" x2="{W-PAD}" y2="{sy}" stroke="#ff3366" stroke-width="1" stroke-dasharray="2,3"/>')
+        svg_parts.append(f'<line x1="{PAD}" y1="{sy}" x2="{W-PAD}" y2="{sy}" stroke="#ff3366" stroke-width="2" stroke-dasharray="0"/>')
         svg_parts.append(f'<text x="{W-PAD+5}" y="{sy+4}" fill="#ff3366" font-size="9" font-family="monospace">SL ${sl:.4f}</text>')
 
     if exit_price > 0:

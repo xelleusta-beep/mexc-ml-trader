@@ -119,9 +119,9 @@ export default function PositionChart({ symbol, onClose }) {
       if (data.entry_price > 0) {
         candleSeries.createPriceLine({
           price: data.entry_price,
-          color: '#00d4ff',
+          color: '#ff9800',
           lineWidth: 2,
-          lineStyle: 2,
+          lineStyle: 0,
           axisLabelVisible: true,
           title: 'GİRİŞ',
         })
@@ -129,9 +129,9 @@ export default function PositionChart({ symbol, onClose }) {
       if (data.take_profit > 0) {
         candleSeries.createPriceLine({
           price: data.take_profit,
-          color: '#00ff88',
+          color: '#76d672',
           lineWidth: 2,
-          lineStyle: 2,
+          lineStyle: 0,
           axisLabelVisible: true,
           title: 'TP',
         })
@@ -141,21 +141,29 @@ export default function PositionChart({ symbol, onClose }) {
           price: data.stop_loss,
           color: '#ff3366',
           lineWidth: 2,
-          lineStyle: 2,
+          lineStyle: 0,
           axisLabelVisible: true,
           title: 'SL',
         })
       }
 
       const dir = data.direction || 'long'
-      const entryTime = data.klines.length > 0
-        ? Math.floor(data.klines[Math.floor(data.klines.length * 0.3)].time / 1000)
-        : Math.floor(data.klines[0].time / 1000)
+      const entryTimeSec = data.entry_time > 0
+        ? Math.floor(data.entry_time)
+        : Math.floor(data.klines[Math.floor(data.klines.length * 0.3)].time / 1000)
+
+      let closestIdx = 0
+      let minDiff = Infinity
+      data.klines.forEach((k, i) => {
+        const diff = Math.abs(Math.floor(k.time / 1000) - entryTimeSec)
+        if (diff < minDiff) { minDiff = diff; closestIdx = i }
+      })
+      const entryMarkerTime = Math.floor(data.klines[closestIdx].time / 1000)
 
       const entryMarker = {
-        time: entryTime,
+        time: entryMarkerTime,
         position: dir === 'long' ? 'belowBar' : 'aboveBar',
-        color: dir === 'long' ? '#00ff88' : '#ff3366',
+        color: dir === 'long' ? '#76d672' : '#ff3366',
         shape: dir === 'long' ? 'arrowUp' : 'arrowDown',
         text: dir.toUpperCase(),
       }
@@ -254,19 +262,19 @@ export default function PositionChart({ symbol, onClose }) {
 
         <div className="flex items-center gap-4 mt-2 text-[10px] text-gray-500">
           <span className="flex items-center gap-1">
-            <span className="w-3 h-0.5 bg-cyan-400 inline-block rounded" /> GİRİŞ
+            <span className="w-3 h-0.5 bg-[#ff9800] inline-block rounded" /> GİRİŞ
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-3 h-0.5 bg-green-400 inline-block rounded" /> TP
+            <span className="w-3 h-0.5 bg-[#76d672] inline-block rounded" /> TP
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-3 h-0.5 bg-red-400 inline-block rounded" /> SL
+            <span className="w-3 h-0.5 bg-[#ff3366] inline-block rounded" /> SL
           </span>
           <span className="flex items-center gap-1">
-            <span className="text-xs">▲</span> LONG GİRİŞ
+            <span className="text-xs text-[#76d672]">▲</span> LONG
           </span>
           <span className="flex items-center gap-1">
-            <span className="text-xs">▼</span> SHORT GİRİŞ
+            <span className="text-xs text-[#ff3366]">▼</span> SHORT
           </span>
           <span className="flex items-center gap-1">
             <span className="text-xs">🏆</span> ÇIKIŞ
