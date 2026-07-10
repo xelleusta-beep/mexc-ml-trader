@@ -7,7 +7,8 @@ from agents import (
     RiskManagerAgent, PortfolioManagerAgent, PatronAgent,
 )
 from mexc_client import get_klines, get_client, futures_submit_order, futures_set_leverage, futures_get_positions, futures_get_assets, futures_get_contract_info, calc_contract_vol
-from config import config
+
+TAKER_FEE = 0.0005
 from data_store import save_state, load_state
 from notifier import notify_position_opened, notify_position_closed
 
@@ -339,7 +340,7 @@ class Orchestrator:
 
             size_usd = risk_decision.get("position_size_usd", 10)
             leverage = risk_decision.get("leverage", 1)
-            entry_fee = round(size_usd * config.TAKER_FEE, 6)
+            entry_fee = round(size_usd * TAKER_FEE, 6)
 
             position = {
                 "symbol": symbol,
@@ -431,7 +432,7 @@ class Orchestrator:
         leveraged_pnl_pct = pnl_pct * leverage
         pnl_usd = size * leveraged_pnl_pct
 
-        exit_fee = round(size * config.TAKER_FEE, 6)
+        exit_fee = round(size * TAKER_FEE, 6)
         entry_fee = position.get("entry_fee", 0)
         total_fees = round(entry_fee + exit_fee, 6)
         net_pnl = round(pnl_usd - total_fees, 6)
@@ -587,7 +588,7 @@ class Orchestrator:
 
                 final_leveraged = final_pnl_pct * leverage
                 final_usd = size * final_leveraged
-                exit_fee = round(size * config.TAKER_FEE, 6)
+                exit_fee = round(size * TAKER_FEE, 6)
                 entry_fee = pos.get("entry_fee", 0)
                 total_fees = round(entry_fee + exit_fee, 6)
                 net_pnl = round(final_usd - total_fees, 6)
