@@ -27,6 +27,7 @@ class ScannerAgent(BaseAgent):
         "DOW", "SP500", "NASDAQ", "SPX", "DAX", "FTSE", "NIKKEI",
         "XAU", "XAG", "XPT", "XPD",
         "STOCK", "ETF", "BOND", "FUND", "INDEX", "FUTURES",
+        "CRCLSTOCK", "METASTOCK", "MSTRSTOCK", "NVIDIA",
     }
 
     def __init__(self):
@@ -148,12 +149,12 @@ class ScannerAgent(BaseAgent):
                     continue
 
                 last_price = float(ticker.get("lastPrice", 0) or 0)
-                volume_24h = float(ticker.get("volume24h", 0) or 0)
-                change_24h = float(ticker.get("change24h", 0) or 0)
-                high_24h = float(ticker.get("highPrice", 0) or ticker.get("h24High", 0) or 0)
-                low_24h = float(ticker.get("lowPrice", 0) or ticker.get("h24Low", 0) or 0)
-                bid = float(ticker.get("bid1Price", 0) or 0)
-                ask = float(ticker.get("ask1Price", 0) or 0)
+                volume_24h = float(ticker.get("volume24", 0) or ticker.get("volume24h", 0) or 0)
+                change_24h = float(ticker.get("riseFallRate", 0) or ticker.get("change24h", 0) or 0)
+                high_24h = float(ticker.get("high24Price", 0) or ticker.get("highPrice", 0) or ticker.get("h24High", 0) or 0)
+                low_24h = float(ticker.get("lower24Price", 0) or ticker.get("lowPrice", 0) or ticker.get("h24Low", 0) or 0)
+                bid = float(ticker.get("bid1", 0) or ticker.get("bid1Price", 0) or 0)
+                ask = float(ticker.get("ask1", 0) or ticker.get("ask1Price", 0) or 0)
 
                 if last_price <= 0 or volume_24h <= 0:
                     continue

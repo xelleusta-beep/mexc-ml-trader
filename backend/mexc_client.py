@@ -17,6 +17,7 @@ BLACKLIST_BASE_COINS = {
     "DOW", "SP500", "NASDAQ", "SPX", "DAX", "FTSE", "NIKKEI",
     "XAU", "XAG", "XPT", "XPD",
     "STOCK", "ETF", "BOND", "FUND", "INDEX", "FUTURES",
+    "CRCLSTOCK", "METASTOCK", "MSTRSTOCK", "NVIDIA",
 }
 
 
