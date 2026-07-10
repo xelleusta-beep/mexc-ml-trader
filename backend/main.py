@@ -925,6 +925,16 @@ async def update_equity(equity: float):
     return {"status": "updated", "equity": equity}
 
 
+@app.post("/api/trading/close/{symbol}")
+async def close_position(symbol: str):
+    """Belirli bir pozisyonu kapatır."""
+    for pos in list(orchestrator.open_positions):
+        if pos["symbol"] == symbol.upper():
+            orchestrator._close_position(pos, "Manuel kapatma")
+            return {"status": "closed", "symbol": symbol.upper()}
+    raise HTTPException(status_code=404, detail=f"{symbol} pozisyonu bulunamadı")
+
+
 @app.websocket("/ws/live")
 async def websocket_live(websocket: WebSocket):
     """Gerçek zamanlı veri akışı için WebSocket."""

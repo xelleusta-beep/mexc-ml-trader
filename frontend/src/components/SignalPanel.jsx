@@ -1,6 +1,12 @@
 import { useState } from 'react'
 
-const STOCK_KEYWORDS = ['STOCK', 'ETF', 'BOND', 'FUND', 'INDEX', 'FUTURES']
+const STOCK_KEYWORDS = [
+  'STOCK', 'ETF', 'BOND', 'FUND', 'INDEX', 'FUTURES',
+  'OIL', 'GOLD', 'SILVER', 'NATGAS', 'COPPER', 'PLATINUM',
+  'DOW', 'SP500', 'NASDAQ', 'SPX', 'DAX', 'FTSE', 'NIKKEI',
+  'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD',
+  'XAU', 'XAG', 'XPT', 'XPD',
+]
 
 function isStockSymbol(symbol) {
   const sym = (symbol || '').toUpperCase()

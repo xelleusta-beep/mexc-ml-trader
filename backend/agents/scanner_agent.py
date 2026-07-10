@@ -20,7 +20,13 @@ MOCK_PRICES = {
 
 
 class ScannerAgent(BaseAgent):
-    STOCK_KEYWORDS = {"STOCK", "ETF", "BOND", "FUND", "INDEX", "FUTURES"}
+    STOCK_KEYWORDS = {
+        "STOCK", "ETF", "BOND", "FUND", "INDEX", "FUTURES",
+        "OIL", "GOLD", "SILVER", "NATGAS", "COPPER", "PLATINUM",
+        "DOW", "SP500", "NASDAQ", "SPX", "DAX", "FTSE", "NIKKEI",
+        "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD",
+        "XAU", "XAG", "XPT", "XPD",
+    }
 
     def __init__(self):
         super().__init__("Scanner")
@@ -37,6 +43,8 @@ class ScannerAgent(BaseAgent):
         for kw in self.STOCK_KEYWORDS:
             if kw in sym_upper or kw in base_upper:
                 return True
+        if base_upper not in ("USDT", "USDC", "BUSD", "USD"):
+            return True
         return False
 
     async def _get_client(self) -> httpx.AsyncClient:

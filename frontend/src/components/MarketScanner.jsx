@@ -1,9 +1,17 @@
-const STOCK_KEYWORDS = ['STOCK', 'ETF', 'BOND', 'FUND', 'INDEX', 'FUTURES']
+const STOCK_KEYWORDS = [
+  'STOCK', 'ETF', 'BOND', 'FUND', 'INDEX', 'FUTURES',
+  'OIL', 'GOLD', 'SILVER', 'NATGAS', 'COPPER', 'PLATINUM',
+  'DOW', 'SP500', 'NASDAQ', 'SPX', 'DAX', 'FTSE', 'NIKKEI',
+  'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD',
+  'XAU', 'XAG', 'XPT', 'XPD',
+]
 
 function isStockSymbol(symbol, baseCoin) {
   const sym = (symbol || '').toUpperCase()
   const base = (baseCoin || '').toUpperCase()
-  return STOCK_KEYWORDS.some(kw => sym.includes(kw) || base.includes(kw))
+  if (STOCK_KEYWORDS.some(kw => sym.includes(kw) || base.includes(kw))) return true
+  if (!['USDT', 'USDC', 'BUSD', 'USD'].includes(base)) return true
+  return false
 }
 
 export default function MarketScanner({ data }) {
