@@ -784,25 +784,36 @@ async def scanner_hot():
 @app.get("/api/debug/tickers")
 async def debug_tickers():
     """MEXC ticker verisinin alan adlarini gosterir (debug)."""
-    scanner = orchestrator.scanner
-    sample_symbols = [s["symbol"] for s in scanner.all_symbols[:5]] if scanner.all_symbols else []
-    sample_tickers = {}
-    for sym in sample_symbols:
-        t = scanner.tickers.get(sym, None)
-        if t:
-            sample_tickers[sym] = list(t.keys()) if isinstance(t, dict) else str(type(t))
-        else:
-            sample_tickers[sym] = "NOT_FOUND"
-    ticker_keys = list(list(scanner.tickers.values())[0].keys()) if scanner.tickers else []
-    return {
-        "symbol_count": len(scanner.all_symbols),
-        "ticker_count": len(scanner.tickers),
-        "first_symbol_names": [s["symbol"] for s in scanner.all_symbols[:3]],
-        "first_ticker_keys": list(scanner.tickers.keys())[:3] if scanner.tickers else [],
-        "ticker_field_names": ticker_keys[:15],
-        "sample_tickers": sample_tickers,
-        "first_ticker_sample": dict(list(scanner.tickers.values())[:1]) if scanner.tickers else {},
-    }
+    try:
+        scanner = orchestrator.scanner
+        all_syms = getattr(scanner, 'all_symbols', []) or []
+        tickers = getattr(scanner, 'tickers', {}) or {}
+        
+        sample_symbols = [s["symbol"] for s in all_syms[:5]]
+        sample_tickers = {}
+        for sym in sample_symbols:
+            t = tickers.get(sym, None)
+            if t:
+                sample_tickers[sym] = list(t.keys()) if isinstance(t, dict) else str(type(t))
+            else:
+                sample_tickers[sym] = "NOT_FOUND"
+        
+        ticker_keys = []
+        if tickers:
+            first_val = list(tickers.values())[0]
+            if isinstance(first_val, dict):
+                ticker_keys = list(first_val.keys())
+        
+        return {
+            "symbol_count": len(all_syms),
+            "ticker_count": len(tickers),
+            "first_symbol_names": [s["symbol"] for s in all_syms[:3]],
+            "first_ticker_keys": list(tickers.keys())[:3],
+            "ticker_field_names": ticker_keys[:20],
+            "sample_tickers": sample_tickers,
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/api/technical/signals")
