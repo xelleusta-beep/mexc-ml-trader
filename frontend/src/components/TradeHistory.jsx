@@ -129,9 +129,10 @@ export default function TradeHistory({ trades: tradesProp }) {
             const isProfit = pnl >= 0
             const reasonClass = closeReasonColors[trade.close_reason] || 'text-gray-400 bg-gray-500/10 border-gray-500/20'
             const duration = formatDuration(trade.entry_time, trade.close_time)
+            const originalIndex = trades.findIndex(t => t === trade)
 
             return (
-              <div key={i} onClick={() => setSelectedTrade({ ...trade, _index: i })}
+              <div key={i} onClick={() => setSelectedTrade({ ...trade, _index: originalIndex })}
                 className="flex items-center gap-3 p-2.5 rounded-lg bg-black/20 hover:bg-purple-500/5 transition-all border border-white/[0.02] cursor-pointer group">
                 <div className={`w-1 h-12 rounded-full ${isProfit ? 'bg-green-500' : pnl < 0 ? 'bg-red-500' : 'bg-gray-500'}`} />
                 <div className="flex-1 min-w-0">

@@ -6,7 +6,7 @@ from agents import (
     ScannerAgent, TechnicalAgent, SentimentAgent,
     RiskManagerAgent, PortfolioManagerAgent, PatronAgent,
 )
-from mexc_client import get_klines
+from mexc_client import get_klines, get_client
 from data_store import save_state, load_state
 from notifier import notify_position_opened, notify_position_closed
 
@@ -303,6 +303,15 @@ class Orchestrator:
             if len(self.open_positions) >= self.risk.max_positions:
                 break
 
+            actual_price = await self._get_current_price(symbol)
+            if actual_price <= 0:
+                actual_price = price
+
+            price_diff_pct = abs(actual_price - price) / price if price > 0 else 0
+            if price_diff_pct > 0.03:
+                self._log(f"Fiyat uyumsuz: {symbol} karar={price} piyasa={actual_price} (%{price_diff_pct*100:.1f} fark) - atlandi")
+                continue
+
             individual_risk = await self.risk.analyze({
                 "total_equity": self.total_equity - sum(p.get("size_usd", 0) for p in self.open_positions),
                 "open_positions": self.open_positions,
@@ -310,7 +319,7 @@ class Orchestrator:
                     "symbol": symbol,
                     "direction": direction,
                     "confidence": decision.get("composite_score", 0.5),
-                    "price": price,
+                    "price": actual_price,
                     "atr_pct": 0.02,
                 },
                 "portfolio": {},
@@ -327,8 +336,8 @@ class Orchestrator:
                 "leverage": risk_decision.get("leverage", 1),
                 "stop_loss": risk_decision.get("stop_loss", 0),
                 "take_profit": risk_decision.get("take_profit", 0),
-                "entry_price": price,
-                "current_price": price,
+                "entry_price": actual_price,
+                "current_price": actual_price,
                 "entry_time": time.time(),
                 "unrealized_pnl": 0,
                 "unrealized_pnl_pct": 0,
@@ -347,7 +356,7 @@ class Orchestrator:
             })
 
             self.patron.log_decision(decision)
-            self._log(f"ISLEM ACILDI: {symbol} {direction.upper()} ${position['size_usd']:.0f} x{position['leverage']} @${price} SL:{position['stop_loss']} TP:{position['take_profit']}")
+            self._log(f"ISLEM ACILDI: {symbol} {direction.upper()} ${position['size_usd']:.0f} x{position['leverage']} @${actual_price} SL:{position['stop_loss']} TP:{position['take_profit']}")
             asyncio.create_task(notify_position_opened(position))
 
         self._persist_state()
@@ -368,6 +377,26 @@ class Orchestrator:
                 })
 
         return executed
+
+    async def _get_current_price(self, symbol: str) -> float:
+        try:
+            client = await get_client()
+            resp = await client.get(f"https://api.mexc.com/api/v1/contract/ticker")
+            if resp.status_code == 200:
+                for item in resp.json().get("data", []):
+                    if item.get("symbol") == symbol:
+                        return float(item.get("lastPrice", 0))
+        except Exception:
+            pass
+
+        try:
+            klines = await get_klines(symbol, "Min1")
+            if klines and len(klines) > 0:
+                return float(klines[-1].get("close", 0))
+        except Exception:
+            pass
+
+        return 0
 
     def _close_position(self, position: dict, reason: str):
         symbol = position["symbol"]
