@@ -39,13 +39,9 @@ class ScannerAgent(BaseAgent):
         self._client: httpx.AsyncClient | None = None
 
     def _is_stock_symbol(self, symbol: str, base_coin: str) -> bool:
-        sym_upper = symbol.upper()
         base_upper = base_coin.upper()
         if base_upper in self.BLACKLIST_BASE_COINS:
             return True
-        for kw in self.BLACKLIST_BASE_COINS:
-            if kw in sym_upper:
-                return True
         return False
 
     async def _get_client(self) -> httpx.AsyncClient:
@@ -126,11 +122,12 @@ class ScannerAgent(BaseAgent):
             except Exception:
                 api_ok = False
 
-            if not api_ok or not self.all_symbols:
+            if not api_ok or not self.all_symbols or not self.tickers:
                 cached = self._load_cached_symbols()
                 if cached:
                     self.all_symbols = cached
-                self.tickers = self._generate_tickers_from_cache()
+                if not self.tickers:
+                    self.tickers = self._generate_tickers_from_cache()
 
             scored = []
             major_coins = {"BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "AVAX", "LINK", "DOT", "PEPE", "WIF", "SUI", "SEI", "NEAR", "ARB", "OP", "APT", "FIL", "INJ", "TIA"}

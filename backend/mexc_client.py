@@ -21,13 +21,9 @@ BLACKLIST_BASE_COINS = {
 
 
 def _is_stock_symbol(symbol: str, base_coin: str) -> bool:
-    sym_upper = symbol.upper()
     base_upper = base_coin.upper()
     if base_upper in BLACKLIST_BASE_COINS:
         return True
-    for kw in BLACKLIST_BASE_COINS:
-        if kw in sym_upper:
-            return True
     return False
 
 # Connection pooling için global client
