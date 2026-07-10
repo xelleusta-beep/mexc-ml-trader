@@ -18,7 +18,7 @@ function formatDuration(entryTs) {
   return `${mins}dk`
 }
 
-export default function LivePositions({ data, positions: positionsProp, portfolio, fullPage }) {
+export default function LivePositions({ data, positions: positionsProp, portfolio, fullPage, onPositionClick }) {
   let positions = positionsProp || data?.positions || []
 
   if (positions.length > 0 && positions[0]?.position) {
@@ -55,7 +55,7 @@ export default function LivePositions({ data, positions: positionsProp, portfoli
         <div className="space-y-2">
           {positions.map((pos, i) => {
             const dir = getDirStyle(pos.direction)
-            const pnl = pos.unrealized_pnl || 0
+            const pnl = pos.net_pnl || pos.unrealized_pnl || 0
             const pnlPct = pos.unrealized_pnl_pct || 0
             const isProfit = pnl >= 0
             const entryTime = formatDateTime(pos.entry_time)
@@ -63,13 +63,16 @@ export default function LivePositions({ data, positions: positionsProp, portfoli
             const priceSource = pos.price_source === '1m_kline' ? '1M' : pos.price_source === 'live' ? 'LIVE' : ''
 
             return (
-              <div key={i} className={`glass-panel ${dir.bg} ${dir.border} border p-3 rounded-lg transition-all hover:shadow-[0_0_15px_rgba(57,255,20,0.1)]`}>
+              <div key={i} className={`glass-panel ${dir.bg} ${dir.border} border p-3 rounded-lg transition-all hover:shadow-[0_0_15px_rgba(57,255,20,0.1)] cursor-pointer`} onClick={() => onPositionClick && onPositionClick(pos.symbol)}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-base font-bold text-white">{pos.symbol}</span>
                     <span className={`tag ${dir.border} ${dir.color}`}>{dir.label}</span>
                     <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
                       x{pos.leverage || 1}
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+                      {pos.margin_type === 'isolated' ? 'İzole' : 'Çapraz'}
                     </span>
                     {pos.patron_score && (
                       <span className="text-xs text-gray-500">
@@ -111,7 +114,7 @@ export default function LivePositions({ data, positions: positionsProp, portfoli
                   </div>
                   <div className="bg-black/20 rounded p-1.5 text-center">
                     <p className="text-gray-500 text-xs">BOYUT</p>
-                    <p className="text-gray-200">${pos.size_usd?.toFixed(0)}</p>
+                    <p className="text-gray-200">${pos.size_usd?.toFixed(2)}</p>
                   </div>
                   <div className="bg-black/20 rounded p-1.5 text-center">
                     <p className="text-gray-500 text-xs">TP</p>
@@ -121,6 +124,17 @@ export default function LivePositions({ data, positions: positionsProp, portfoli
                     <p className="text-gray-500 text-xs">SL</p>
                     <p className="text-red-400">${pos.stop_loss?.toFixed(4)}</p>
                   </div>
+                </div>
+
+                <div className="flex items-center justify-between mt-2 text-[10px] bg-black/20 rounded px-2 py-1">
+                  <span className="text-gray-500">
+                    Fee: <span className="text-orange-400">${(pos.entry_fee || 0).toFixed(4)}</span>
+                  </span>
+                  <span className="text-gray-500">
+                    Net PnL: <span className={`${(pos.net_pnl || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {(pos.net_pnl || 0) >= 0 ? '+' : ''}{(pos.net_pnl || 0).toFixed(4)}
+                    </span>
+                  </span>
                 </div>
               </div>
             )

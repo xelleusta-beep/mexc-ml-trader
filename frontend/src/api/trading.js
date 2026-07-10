@@ -190,6 +190,12 @@ export async function checkBackend() {
   }
 }
 
+export async function getPositionKlines(symbol) {
+  const resp = await fetch(`${API_BASE}/position/${symbol}/klines`);
+  if (!resp.ok) throw new Error('Pozisyon klines verisi alınamadı');
+  return resp.json();
+}
+
 export function connectWebSocket(onMessage) {
   const isDev = window.location.hostname === 'localhost';
   const wsPort = isDev ? 8000 : '';

@@ -887,6 +887,33 @@ async def trading_latest():
     return orchestrator.get_latest_results()
 
 
+@app.get("/api/position/{symbol}/klines")
+async def get_position_klines(symbol: str):
+    """Acik pozisyon icin canli mum verisi getirir (5m)."""
+    try:
+        klines = await get_klines(symbol, "Min5")
+        if not klines:
+            return {"klines": [], "symbol": symbol}
+
+        position = None
+        for pos in orchestrator.open_positions:
+            if pos["symbol"] == symbol:
+                position = pos
+                break
+
+        return {
+            "klines": klines[-120:],
+            "symbol": symbol,
+            "entry_price": position["entry_price"] if position else 0,
+            "take_profit": position.get("take_profit", 0) if position else 0,
+            "stop_loss": position.get("stop_loss", 0) if position else 0,
+            "direction": position.get("direction", "") if position else "",
+            "current_price": position.get("current_price", 0) if position else 0,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/trading/start")
 async def trading_start():
     """Trading'i başlatır."""

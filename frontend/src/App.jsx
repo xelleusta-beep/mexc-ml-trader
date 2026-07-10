@@ -8,6 +8,7 @@ import RiskMetrics from './components/RiskMetrics'
 import TradeHistory from './components/TradeHistory'
 import SettingsPanel from './components/SettingsPanel'
 import KeyAuth from './components/KeyAuth'
+import PositionChart from './components/PositionChart'
 import { getSystemStatus, getTradingLatest, getTradingHistory, getSentimentCurrent, startTrading, stopTrading, runSingleCycle, connectWebSocket } from './api/trading'
 
 function App() {
@@ -25,6 +26,7 @@ function App() {
   const [time, setTime] = useState(new Date())
   const [prevEquity, setPrevEquity] = useState(null)
   const [equityFlash, setEquityFlash] = useState(null)
+  const [selectedPosition, setSelectedPosition] = useState(null)
   const wsRef = useRef(null)
 
   const fetchStatus = useCallback(async () => {
@@ -267,7 +269,7 @@ function App() {
               <RiskMetrics data={latestData?.risk} portfolio={latestData?.portfolio} sentiment={sentimentData || latestData?.sentiment} />
             </div>
             <div className="md:col-span-7">
-              <LivePositions positions={latestData?.positions || latestData?.executed} portfolio={latestData?.portfolio} />
+              <LivePositions positions={latestData?.positions || latestData?.executed} portfolio={latestData?.portfolio} onPositionClick={setSelectedPosition} />
             </div>
             <div className="md:col-span-5">
               <SignalPanel data={latestData?.patron} />
@@ -276,10 +278,15 @@ function App() {
         )}
         {activeTab === 'scanner' && <MarketScanner data={latestData?.scanner} />}
         {activeTab === 'signals' && <SignalPanel data={latestData?.patron} fullPage />}
-        {activeTab === 'positions' && <LivePositions positions={latestData?.positions || latestData?.executed} portfolio={latestData?.portfolio} fullPage />}
+        {activeTab === 'positions' && <LivePositions positions={latestData?.positions || latestData?.executed} portfolio={latestData?.portfolio} fullPage onPositionClick={setSelectedPosition} />}
         {activeTab === 'history' && <TradeHistory trades={tradeHistory} />}
         {activeTab === 'settings' && authenticated && <SettingsPanel isRunning={isRunning} onStart={handleStart} onStop={handleStop} />}
       </main>
+
+      {/* POSITION CHART MODAL */}
+      {selectedPosition && (
+        <PositionChart symbol={selectedPosition} onClose={() => setSelectedPosition(null)} />
+      )}
 
       {/* LOGIN MODAL */}
       {showLogin && (

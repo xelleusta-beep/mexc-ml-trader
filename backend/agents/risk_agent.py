@@ -5,9 +5,9 @@ from .base_agent import BaseAgent
 class RiskManagerAgent(BaseAgent):
     def __init__(self):
         super().__init__("RiskManager")
-        self.max_risk_per_trade = 0.02
+        self.max_risk_per_trade = 0.01
         self.max_positions = 5
-        self.max_leverage = 20
+        self.max_leverage = 10
         self.max_daily_loss_pct = 0.05
         self.daily_pnl = 0.0
         self.daily_start_equity = 0.0

@@ -7,6 +7,7 @@ from agents import (
     RiskManagerAgent, PortfolioManagerAgent, PatronAgent,
 )
 from mexc_client import get_klines, get_client, futures_submit_order, futures_set_leverage, futures_get_positions, futures_get_assets, futures_get_contract_info, calc_contract_vol
+from config import config
 from data_store import save_state, load_state
 from notifier import notify_position_opened, notify_position_closed
 
@@ -336,24 +337,33 @@ class Orchestrator:
             if not risk_decision.get("approved"):
                 continue
 
+            size_usd = risk_decision.get("position_size_usd", 10)
+            leverage = risk_decision.get("leverage", 1)
+            entry_fee = round(size_usd * config.TAKER_FEE, 6)
+
             position = {
                 "symbol": symbol,
                 "direction": direction,
-                "size_usd": risk_decision.get("position_size_usd", 500),
-                "leverage": risk_decision.get("leverage", 1),
+                "size_usd": size_usd,
+                "leverage": leverage,
+                "margin_type": "isolated",
                 "stop_loss": risk_decision.get("stop_loss", 0),
                 "take_profit": risk_decision.get("take_profit", 0),
                 "entry_price": actual_price,
                 "current_price": actual_price,
                 "entry_time": time.time(),
+                "entry_fee": entry_fee,
+                "exit_fee": 0,
+                "total_fees": entry_fee,
                 "unrealized_pnl": 0,
                 "unrealized_pnl_pct": 0,
+                "net_pnl": -entry_fee,
                 "status": "open",
                 "patron_score": decision.get("composite_score", 0),
             }
 
             self.open_positions.append(position)
-            self.available_capital -= position["size_usd"]
+            self.available_capital -= size_usd
             self.trade_count += 1
 
             executed.append({
@@ -421,8 +431,13 @@ class Orchestrator:
         leveraged_pnl_pct = pnl_pct * leverage
         pnl_usd = size * leveraged_pnl_pct
 
-        self.total_equity += pnl_usd
-        self.available_capital += size + pnl_usd
+        exit_fee = round(size * config.TAKER_FEE, 6)
+        entry_fee = position.get("entry_fee", 0)
+        total_fees = round(entry_fee + exit_fee, 6)
+        net_pnl = round(pnl_usd - total_fees, 6)
+
+        self.total_equity += net_pnl
+        self.available_capital += size + net_pnl
 
         self.open_positions = [p for p in self.open_positions if p["symbol"] != symbol]
         self.trade_count += 1
@@ -434,18 +449,23 @@ class Orchestrator:
             "exit_price": current,
             "size_usd": size,
             "leverage": leverage,
+            "margin_type": "isolated",
             "entry_time": position.get("entry_time", time.time()),
             "close_time": time.time(),
             "close_reason": reason,
             "pnl": round(pnl_usd, 2),
             "pnl_pct": round(leveraged_pnl_pct * 100, 2),
+            "entry_fee": entry_fee,
+            "exit_fee": exit_fee,
+            "total_fees": total_fees,
+            "net_pnl": net_pnl,
             "patron_score": position.get("patron_score", 0),
             "status": "closed",
         }
         self.trade_history.append(trade_record)
 
-        emoji = "+" if pnl_usd >= 0 else ""
-        self._log(f"POZISYON KAPATILDI: {symbol} {direction.upper()} @${current} | PnL: {emoji}${pnl_usd:.2f} ({emoji}{leveraged_pnl_pct*100:.1f}%) - {reason}")
+        emoji = "+" if net_pnl >= 0 else ""
+        self._log(f"POZISYON KAPATILDI: {symbol} {direction.upper()} @${current} | PnL: {emoji}${net_pnl:.2f} (brut: {emoji}${pnl_usd:.2f}, fee: -${total_fees:.4f}) - {reason}")
         asyncio.create_task(notify_position_closed(position, reason))
 
     async def _broadcast_update(self, data: dict):
@@ -537,8 +557,11 @@ class Orchestrator:
 
             leveraged_pnl_pct = pnl_pct * leverage
             pnl_usd = size * leveraged_pnl_pct
+            entry_fee = pos.get("entry_fee", 0)
+            net_pnl = round(pnl_usd - entry_fee, 6)
             pos["unrealized_pnl"] = round(pnl_usd, 2)
             pos["unrealized_pnl_pct"] = round(leveraged_pnl_pct * 100, 2)
+            pos["net_pnl"] = net_pnl
 
             sl = pos.get("stop_loss", 0)
             tp = pos.get("take_profit", 0)
@@ -564,9 +587,16 @@ class Orchestrator:
 
                 final_leveraged = final_pnl_pct * leverage
                 final_usd = size * final_leveraged
+                exit_fee = round(size * config.TAKER_FEE, 6)
+                entry_fee = pos.get("entry_fee", 0)
+                total_fees = round(entry_fee + exit_fee, 6)
+                net_pnl = round(final_usd - total_fees, 6)
 
                 pos["unrealized_pnl"] = round(final_usd, 2)
                 pos["unrealized_pnl_pct"] = round(final_leveraged * 100, 2)
+                pos["net_pnl"] = net_pnl
+                pos["exit_fee"] = exit_fee
+                pos["total_fees"] = total_fees
                 pos["current_price"] = close_price
                 pos["close_price"] = close_price
                 pos["close_time"] = time.time()
@@ -575,7 +605,7 @@ class Orchestrator:
                 pos["pnl_pct"] = round(final_leveraged * 100, 2)
 
                 self._close_position(pos, close_reason)
-                self._log(f"SL/TP TETIK: {symbol} {close_reason} @${close_price}")
+                self._log(f"SL/TP TETIK: {symbol} {close_reason} @${close_price} | Net: {net_pnl:.4f}$ (fee: -{total_fees:.4f}$)")
 
         self._persist_state()
 
