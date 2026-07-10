@@ -281,7 +281,7 @@ class TechnicalAgent(BaseAgent):
 
         tf_weights = {"5m": 0.1, "15m": 0.15, "1h": 0.25, "4h": 0.3, "1D": 0.2}
         weighted_confidence = 0.0
-        direction_votes = {"long": 0.0, "short": 0.0, "hold": 0.0}
+        direction_votes = {"long": 0.0, "short": 0.0}
         all_signals = []
         all_reasons = []
         latest = tf_signals[-1]
@@ -291,7 +291,9 @@ class TechnicalAgent(BaseAgent):
             tf = sig["timeframe"]
             weight = tf_weights.get(tf, 0.1)
             weighted_confidence += sig["confidence"] * weight
-            direction_votes[sig["direction"]] += weight
+            sig_dir = sig["direction"]
+            if sig_dir in direction_votes:
+                direction_votes[sig_dir] += weight
             all_signals.extend(sig["signals"])
             all_reasons.extend(sig["reasons"])
 
@@ -305,12 +307,15 @@ class TechnicalAgent(BaseAgent):
                 "indicators": sig.get("indicators", {}),
             })
 
-        combined_direction = max(direction_votes, key=direction_votes.get)
-        if direction_votes[combined_direction] < 0.3:
-            combined_direction = "hold"
-
         long_votes = round(direction_votes.get("long", 0), 2)
         short_votes = round(direction_votes.get("short", 0), 2)
+
+        if long_votes > short_votes and long_votes >= 0.1:
+            combined_direction = "long"
+        elif short_votes > long_votes and short_votes >= 0.1:
+            combined_direction = "short"
+        else:
+            combined_direction = "hold"
 
         return {
             "symbol": latest["symbol"],
