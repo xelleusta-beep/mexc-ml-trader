@@ -10,23 +10,24 @@ BASE_URL = "https://api.mexc.co"
 CACHE_DIR = Path(__file__).parent.parent / "data" / "cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-STOCK_KEYWORDS = {
-    "STOCK", "ETF", "BOND", "FUND", "INDEX", "FUTURES",
+BLACKLIST_BASE_COINS = {
+    "USDC", "BUSD", "DAI", "TUSD", "USDP", "FDUSD", "PYUSD",
+    "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD", "CNY",
     "OIL", "GOLD", "SILVER", "NATGAS", "COPPER", "PLATINUM",
     "DOW", "SP500", "NASDAQ", "SPX", "DAX", "FTSE", "NIKKEI",
-    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD",
     "XAU", "XAG", "XPT", "XPD",
+    "STOCK", "ETF", "BOND", "FUND", "INDEX", "FUTURES",
 }
 
 
 def _is_stock_symbol(symbol: str, base_coin: str) -> bool:
     sym_upper = symbol.upper()
     base_upper = base_coin.upper()
-    for kw in STOCK_KEYWORDS:
-        if kw in sym_upper or kw in base_upper:
-            return True
-    if base_upper not in ("USDT", "USDC", "BUSD", "USD"):
+    if base_upper in BLACKLIST_BASE_COINS:
         return True
+    for kw in BLACKLIST_BASE_COINS:
+        if kw in sym_upper:
+            return True
     return False
 
 # Connection pooling için global client

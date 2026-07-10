@@ -20,12 +20,13 @@ MOCK_PRICES = {
 
 
 class ScannerAgent(BaseAgent):
-    STOCK_KEYWORDS = {
-        "STOCK", "ETF", "BOND", "FUND", "INDEX", "FUTURES",
+    BLACKLIST_BASE_COINS = {
+        "USDC", "BUSD", "DAI", "TUSD", "USDP", "FDUSD", "PYUSD",
+        "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD", "CNY",
         "OIL", "GOLD", "SILVER", "NATGAS", "COPPER", "PLATINUM",
         "DOW", "SP500", "NASDAQ", "SPX", "DAX", "FTSE", "NIKKEI",
-        "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD",
         "XAU", "XAG", "XPT", "XPD",
+        "STOCK", "ETF", "BOND", "FUND", "INDEX", "FUTURES",
     }
 
     def __init__(self):
@@ -40,11 +41,11 @@ class ScannerAgent(BaseAgent):
     def _is_stock_symbol(self, symbol: str, base_coin: str) -> bool:
         sym_upper = symbol.upper()
         base_upper = base_coin.upper()
-        for kw in self.STOCK_KEYWORDS:
-            if kw in sym_upper or kw in base_upper:
-                return True
-        if base_upper not in ("USDT", "USDC", "BUSD", "USD"):
+        if base_upper in self.BLACKLIST_BASE_COINS:
             return True
+        for kw in self.BLACKLIST_BASE_COINS:
+            if kw in sym_upper:
+                return True
         return False
 
     async def _get_client(self) -> httpx.AsyncClient:
@@ -161,6 +162,10 @@ class ScannerAgent(BaseAgent):
                     continue
 
                 volatility = (high_24h - low_24h) / last_price if high_24h > 0 and low_24h > 0 else 0
+
+                if volatility < 0.01:
+                    continue
+
                 spread_pct = (ask - bid) / bid if bid > 0 and ask > 0 else 0
 
                 vol_score = min(volume_24h / 1_000_000, 10.0)

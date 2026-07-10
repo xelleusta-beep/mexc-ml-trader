@@ -1,16 +1,17 @@
-const STOCK_KEYWORDS = [
-  'STOCK', 'ETF', 'BOND', 'FUND', 'INDEX', 'FUTURES',
+const BLACKLIST_BASE = [
+  'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP', 'FDUSD', 'PYUSD',
+  'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD', 'CNY',
   'OIL', 'GOLD', 'SILVER', 'NATGAS', 'COPPER', 'PLATINUM',
   'DOW', 'SP500', 'NASDAQ', 'SPX', 'DAX', 'FTSE', 'NIKKEI',
-  'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD',
   'XAU', 'XAG', 'XPT', 'XPD',
+  'STOCK', 'ETF', 'BOND', 'FUND', 'INDEX', 'FUTURES',
 ]
 
 function isStockSymbol(symbol, baseCoin) {
   const sym = (symbol || '').toUpperCase()
   const base = (baseCoin || '').toUpperCase()
-  if (STOCK_KEYWORDS.some(kw => sym.includes(kw) || base.includes(kw))) return true
-  if (!['USDT', 'USDC', 'BUSD', 'USD'].includes(base)) return true
+  if (BLACKLIST_BASE.includes(base)) return true
+  if (BLACKLIST_BASE.some(kw => sym.includes(kw))) return true
   return false
 }
 

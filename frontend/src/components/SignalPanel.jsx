@@ -1,16 +1,18 @@
 import { useState } from 'react'
 
-const STOCK_KEYWORDS = [
-  'STOCK', 'ETF', 'BOND', 'FUND', 'INDEX', 'FUTURES',
+const BLACKLIST_BASE = [
+  'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP', 'FDUSD', 'PYUSD',
+  'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD', 'CNY',
   'OIL', 'GOLD', 'SILVER', 'NATGAS', 'COPPER', 'PLATINUM',
   'DOW', 'SP500', 'NASDAQ', 'SPX', 'DAX', 'FTSE', 'NIKKEI',
-  'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD',
   'XAU', 'XAG', 'XPT', 'XPD',
+  'STOCK', 'ETF', 'BOND', 'FUND', 'INDEX', 'FUTURES',
 ]
 
 function isStockSymbol(symbol) {
   const sym = (symbol || '').toUpperCase()
-  return STOCK_KEYWORDS.some(kw => sym.includes(kw))
+  if (BLACKLIST_BASE.some(kw => sym.includes(kw))) return true
+  return false
 }
 
 const dirConfig = {
