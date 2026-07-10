@@ -781,41 +781,6 @@ async def scanner_hot():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/debug/tickers")
-async def debug_tickers():
-    """MEXC ticker verisinin alan adlarini gosterir (debug)."""
-    try:
-        scanner = orchestrator.scanner
-        all_syms = getattr(scanner, 'all_symbols', []) or []
-        tickers = getattr(scanner, 'tickers', {}) or {}
-        
-        sample_symbols = [s["symbol"] for s in all_syms[:5]]
-        sample_tickers = {}
-        for sym in sample_symbols:
-            t = tickers.get(sym, None)
-            if t:
-                sample_tickers[sym] = list(t.keys()) if isinstance(t, dict) else str(type(t))
-            else:
-                sample_tickers[sym] = "NOT_FOUND"
-        
-        ticker_keys = []
-        if tickers:
-            first_val = list(tickers.values())[0]
-            if isinstance(first_val, dict):
-                ticker_keys = list(first_val.keys())
-        
-        return {
-            "symbol_count": len(all_syms),
-            "ticker_count": len(tickers),
-            "first_symbol_names": [s["symbol"] for s in all_syms[:3]],
-            "first_ticker_keys": list(tickers.keys())[:3],
-            "ticker_field_names": ticker_keys[:20],
-            "sample_tickers": sample_tickers,
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
-
 @app.get("/api/technical/signals")
 async def technical_signals():
     """Teknik sinyalleri döndürür."""

@@ -481,96 +481,96 @@ class Orchestrator:
                 await asyncio.sleep(5)
 
     async def _fast_update_positions(self):
-        """Acik pozisyonlarin fiyatlarini 1dk mum verisi ile guncelle."""
+        """Acik pozisyonlarin fiyatlarini ticker API ile 10sn'de bir guncelle."""
         symbols = list(set(p["symbol"] for p in self.open_positions))
         if not symbols:
             return
 
-        for symbol in symbols:
+        ticker_prices = {}
+        try:
+            client = await get_client()
+            resp = await client.get("https://api.mexc.com/api/v1/contract/ticker")
+            if resp.status_code == 200:
+                for item in resp.json().get("data", []):
+                    sym = item.get("symbol", "")
+                    lp = float(item.get("lastPrice", 0) or 0)
+                    if sym and lp > 0:
+                        ticker_prices[sym] = lp
+        except Exception:
+            pass
+
+        if not ticker_prices:
             try:
-                klines = await get_klines(symbol, "Min1")
-                if not klines or len(klines) < 1:
-                    continue
+                klines = await get_klines(symbols[0], "Min1") if symbols else None
+                if klines and len(klines) > 0:
+                    ticker_prices[symbols[0]] = float(klines[-1].get("close", 0))
+            except Exception:
+                pass
 
-                latest_candle = klines[-1]
-                candle_high = float(latest_candle.get("high", latest_candle.get("close", 0)))
-                candle_low = float(latest_candle.get("low", latest_candle.get("close", 0)))
-                candle_close = float(latest_candle.get("close", 0))
-                candle_open = float(latest_candle.get("open", candle_close))
+        now = time.time()
+        for pos in list(self.open_positions):
+            symbol = pos["symbol"]
+            price = ticker_prices.get(symbol)
+            if not price:
+                continue
 
-                for pos in list(self.open_positions):
-                    if pos["symbol"] != symbol:
-                        continue
+            pos["current_price"] = price
+            pos["price_source"] = "ticker"
+            pos["last_update_time"] = now
 
-                    pos["current_price"] = candle_close
-                    pos["price_source"] = "1m_kline"
-                    pos["last_kline_high"] = candle_high
-                    pos["last_kline_low"] = candle_low
-                    pos["last_kline_open"] = candle_open
-                    pos["last_kline_close"] = candle_close
-                    pos["last_update_time"] = time.time()
+            entry = pos["entry_price"]
+            direction = pos.get("direction", "")
+            leverage = pos.get("leverage", 1)
+            size = pos.get("size_usd", 0)
 
-                    entry = pos["entry_price"]
-                    direction = pos.get("direction", "")
-                    leverage = pos.get("leverage", 1)
-                    size = pos.get("size_usd", 0)
+            if direction == "long":
+                pnl_pct = (price - entry) / entry if entry > 0 else 0
+            else:
+                pnl_pct = (entry - price) / entry if entry > 0 else 0
 
-                    if direction == "long":
-                        pnl_pct = (candle_close - entry) / entry if entry > 0 else 0
-                    else:
-                        pnl_pct = (entry - candle_close) / entry if entry > 0 else 0
+            leveraged_pnl_pct = pnl_pct * leverage
+            pnl_usd = size * leveraged_pnl_pct
+            pos["unrealized_pnl"] = round(pnl_usd, 2)
+            pos["unrealized_pnl_pct"] = round(leveraged_pnl_pct * 100, 2)
 
-                    leveraged_pnl_pct = pnl_pct * leverage
-                    pnl_usd = size * leveraged_pnl_pct
-                    pos["unrealized_pnl"] = round(pnl_usd, 2)
-                    pos["unrealized_pnl_pct"] = round(leveraged_pnl_pct * 100, 2)
+            sl = pos.get("stop_loss", 0)
+            tp = pos.get("take_profit", 0)
+            close_reason = None
 
-                    sl = pos.get("stop_loss", 0)
-                    tp = pos.get("take_profit", 0)
-                    close_reason = None
+            if direction == "long":
+                if sl > 0 and price <= sl:
+                    close_reason = "SL tetiklendi"
+                elif tp > 0 and price >= tp:
+                    close_reason = "TP tetiklendi"
+            elif direction == "short":
+                if sl > 0 and price >= sl:
+                    close_reason = "SL tetiklendi"
+                elif tp > 0 and price <= tp:
+                    close_reason = "TP tetiklendi"
 
-                    if direction == "long":
-                        if sl > 0 and candle_low <= sl:
-                            close_reason = "SL tetiklendi"
-                        elif tp > 0 and candle_high >= tp:
-                            close_reason = "TP tetiklendi"
-                    elif direction == "short":
-                        if sl > 0 and candle_high >= sl:
-                            close_reason = "SL tetiklendi"
-                        elif tp > 0 and candle_low <= tp:
-                            close_reason = "TP tetiklendi"
+            if close_reason:
+                close_price = price
+                if direction == "long":
+                    final_pnl_pct = (close_price - entry) / entry if entry > 0 else 0
+                else:
+                    final_pnl_pct = (entry - close_price) / entry if entry > 0 else 0
 
-                    if close_reason:
-                        if close_reason == "TP tetiklendi":
-                            close_price = tp
-                        else:
-                            close_price = sl
+                final_leveraged = final_pnl_pct * leverage
+                final_usd = size * final_leveraged
 
-                        if direction == "long":
-                            final_pnl_pct = (close_price - entry) / entry if entry > 0 else 0
-                        else:
-                            final_pnl_pct = (entry - close_price) / entry if entry > 0 else 0
+                pos["unrealized_pnl"] = round(final_usd, 2)
+                pos["unrealized_pnl_pct"] = round(final_leveraged * 100, 2)
+                pos["current_price"] = close_price
+                pos["close_price"] = close_price
+                pos["close_time"] = time.time()
+                pos["close_reason"] = close_reason
+                pos["pnl"] = round(final_usd, 2)
+                pos["pnl_pct"] = round(final_leveraged * 100, 2)
 
-                        final_leveraged = final_pnl_pct * leverage
-                        final_usd = size * final_leveraged
+                self._close_position(pos, close_reason)
+                self._log(f"SL/TP TETIK: {symbol} {close_reason} @${close_price}")
 
-                        pos["unrealized_pnl"] = round(final_usd, 2)
-                        pos["unrealized_pnl_pct"] = round(final_leveraged * 100, 2)
-                        pos["current_price"] = close_price
-                        pos["close_price"] = close_price
-                        pos["close_time"] = time.time()
-                        pos["close_reason"] = close_reason
-                        pos["pnl"] = round(final_usd, 2)
-                        pos["pnl_pct"] = round(final_leveraged * 100, 2)
-
-                        self._close_position(pos, close_reason)
-                        self._log(f"1M SL/TP TETIK: {symbol} {close_reason} @${close_price}")
-
-                self._persist_state()
-
-                await asyncio.sleep(0.1)
-            except Exception as e:
-                self._log(f"{symbol} fiyat guncelleme hatasi: {e}")
+        self._persist_state()
 
     async def _broadcast_positions_only(self):
         """Sadece pozisyon verisini broadcast et (hizli guncelleme icin)."""
