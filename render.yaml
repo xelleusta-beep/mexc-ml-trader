@@ -9,6 +9,7 @@ services:
       pip install -r backend/requirements.txt
       cd frontend && npm install && npm run build
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
     envVars:
       - key: PERSIST_DIR
         value: /var/data
@@ -18,3 +19,13 @@ services:
         value: "5869116212:AAEAUTxVifmqDYecqfAn0m9DEv3l5osufDY"
       - key: TELEGRAM_CHAT_ID
         value: "-1001685438330"
+
+  - type: cron
+    name: keep-alive
+    runtime: python
+    pythonVersion: "3.11"
+    region: frankfurt
+    plan: free
+    schedule: "*/10 * * * *"
+    buildCommand: pip install requests
+    startCommand: python -c "import requests; requests.get('https://mexc-ml-trader.onrender.com/api/health', timeout=30)"

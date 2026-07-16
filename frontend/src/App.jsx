@@ -134,22 +134,33 @@ function App() {
   const positionCount = latestData?.positions?.length || latestData?.executed?.length || systemStatus?.open_positions || 0
 
   return (
-    <div className="min-h-screen bg-[#030712] grid-bg hex-pattern">
+    <div className="min-h-screen bg-[#030712] grid-bg hex-pattern relative">
+      {/* PARTICLE EFFECTS */}
+      <div className="particles">
+        {[...Array(12)].map((_, i) => (
+          <div key={i} className="particle" style={{
+            left: `${Math.random() * 100}%`,
+            animationDuration: `${15 + Math.random() * 20}s`,
+            animationDelay: `${Math.random() * 10}s`,
+          }} />
+        ))}
+      </div>
+
       {/* HEADER */}
-      <header className="border-b border-cyan-500/10 bg-[#030712]/90 backdrop-blur-xl sticky top-0 z-50">
+      <header className="border-b border-cyan-500/10 bg-[#030712]/95 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-[1920px] mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4 md:gap-6">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/20 to-purple-500/20 border border-cyan-500/30 flex items-center justify-center">
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-cyan-500/20 to-purple-500/20 border border-cyan-500/30 flex items-center justify-center animate-glowPulse">
                 <span className="font-orbitron text-lg neon-cyan">M</span>
               </div>
               <div>
-                <h1 className="font-orbitron text-base md:text-lg font-bold tracking-widest">
+                <h1 className="font-orbitron text-base md:text-lg font-bold tracking-[0.15em]">
                   <span className="neon-cyan">MEXC</span>
-                  <span className="text-gray-400 ml-2 hidden sm:inline">TRADING</span>
-                  <span className="neon-purple ml-2">NEXUS</span>
+                  <span className="text-gray-500 ml-1.5 hidden sm:inline">TRADING</span>
+                  <span className="neon-purple ml-1.5">NEXUS</span>
                 </h1>
-                <p className="text-xs text-cyan-500/50 tracking-wider hidden md:block">MULTI-AGENT NEURAL NETWORK</p>
+                <p className="text-[10px] text-cyan-500/40 tracking-[0.2em] hidden md:block">MULTI-AGENT NEURAL NETWORK</p>
               </div>
             </div>
 
@@ -160,7 +171,7 @@ function App() {
                   {wsConnected ? 'ONLINE' : 'OFFLINE'}
                 </span>
               </div>
-              <div className="text-xs md:text-sm text-cyan-500/60 font-semibold hidden sm:block">
+              <div className="text-xs md:text-sm text-cyan-500/50 font-mono font-semibold hidden sm:block">
                 {formatTime(time)}
               </div>
             </div>
@@ -168,21 +179,21 @@ function App() {
 
           <div className="flex items-center gap-3 md:gap-6">
             {/* EQUITY DISPLAY */}
-            <div className="flex items-center gap-3 md:gap-6 px-3 md:px-5 py-2 glass-panel rounded-lg">
+            <div className="flex items-center gap-3 md:gap-6 px-3 md:px-5 py-2.5 glass-panel rounded-xl">
               <div>
-                <p className="text-label text-cyan-500/60">PORTFÖY</p>
-                <p className={`text-value neon-cyan transition-all ${equityFlash === 'up' ? 'flash-green' : equityFlash === 'down' ? 'flash-red' : ''}`}>
+                <p className="text-label text-cyan-500/50" style={{ fontSize: '10px' }}>PORTFÖY</p>
+                <p className={`text-value neon-cyan transition-all font-mono ${equityFlash === 'up' ? 'flash-green' : equityFlash === 'down' ? 'flash-red' : ''}`}>
                   ${totalEquity.toLocaleString()}
                 </p>
               </div>
               <div className="w-px h-8 bg-cyan-500/10 hidden sm:block" />
               <div className="hidden sm:block">
-                <p className="text-label text-green-500/60">KULLANILAN</p>
-                <p className="text-value text-green-400">${usedCapital.toLocaleString()}</p>
+                <p className="text-label text-green-500/50" style={{ fontSize: '10px' }}>KULLANILAN</p>
+                <p className="text-value text-green-400 font-mono">${usedCapital.toLocaleString()}</p>
               </div>
               <div className="w-px h-8 bg-cyan-500/10 hidden sm:block" />
               <div className="hidden sm:block">
-                <p className="text-label text-purple-500/60">POZİSYON</p>
+                <p className="text-label text-purple-500/50" style={{ fontSize: '10px' }}>POZİSYON</p>
                 <p className="text-value neon-purple">{positionCount}/5</p>
               </div>
             </div>
@@ -225,19 +236,19 @@ function App() {
       </header>
 
       {/* TABS */}
-      <div className="border-b border-cyan-500/10 bg-[#030712]/80 backdrop-blur-sm overflow-x-auto">
+      <div className="border-b border-cyan-500/10 bg-[#030712]/85 backdrop-blur-sm overflow-x-auto">
         <div className="max-w-[1920px] mx-auto px-4 flex gap-1 min-w-max">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-3 md:px-5 py-3 text-xs md:text-sm font-bold tracking-wider transition-all border-b-2 flex items-center gap-2 whitespace-nowrap ${
+              className={`px-4 md:px-5 py-3 text-[11px] md:text-xs font-bold tracking-[0.15em] transition-all border-b-2 flex items-center gap-2 whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-cyan-400 text-cyan-400 bg-cyan-500/5'
-                  : 'border-transparent text-gray-500 hover:text-gray-300'
+                  : 'border-transparent text-gray-500 hover:text-gray-300 hover:border-gray-600'
               }`}
             >
-              <span className="text-base">{tab.icon}</span>
+              <span className="text-sm">{tab.icon}</span>
               {tab.label}
             </button>
           ))}

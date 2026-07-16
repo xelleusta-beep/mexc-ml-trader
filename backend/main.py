@@ -11,7 +11,7 @@ import threading
 import os
 from pathlib import Path
 
-from mexc_client import get_all_futures_symbols, get_klines
+from mexc_client import get_all_futures_symbols, get_klines, CACHE_DIR
 from indicators import calculate_indicators, calculate_trend_signal, calculate_adx, calculate_atr, calculate_macd, calculate_bollinger_bands, calculate_volume_sma, calculate_stochastic_rsi, calculate_ema
 from backtest_engine import BacktestEngine
 from orchestrator import Orchestrator
@@ -919,25 +919,52 @@ async def trading_latest():
 async def get_position_klines(symbol: str):
     """Acik pozisyon icin canli mum verisi getirir (5m)."""
     try:
-        klines = await get_klines(symbol, "Min5")
-        if not klines:
-            return {"klines": [], "symbol": symbol}
-
         position = None
         for pos in orchestrator.open_positions:
             if pos["symbol"] == symbol:
                 position = pos
                 break
 
+        entry_time_val = position.get("entry_time", 0) if position else 0
+        entry_time_ms = int(entry_time_val * 1000) if entry_time_val else 0
+
+        all_klines = await get_klines(symbol, "Min5")
+        if not all_klines:
+            return {"klines": [], "symbol": symbol}
+
+        if entry_time_ms > 0:
+            safe_symbol = symbol.replace("/", "_")
+            cache_file = CACHE_DIR / f"{safe_symbol}_Min5.json"
+            if cache_file.exists():
+                cache_file.unlink()
+            fresh_klines = await get_klines(symbol, "Min5")
+            if fresh_klines:
+                all_klines = fresh_klines
+
+            idx = 0
+            for i, k in enumerate(all_klines):
+                if k.get("time", 0) >= entry_time_ms:
+                    idx = max(0, i - 1)
+                    break
+            klines = all_klines[idx:]
+        else:
+            klines = all_klines[-120:]
+
+        if len(klines) > 500:
+            klines = klines[-500:]
+
         return {
-            "klines": klines[-120:],
+            "klines": klines,
             "symbol": symbol,
             "entry_price": position["entry_price"] if position else 0,
             "take_profit": position.get("take_profit", 0) if position else 0,
             "stop_loss": position.get("stop_loss", 0) if position else 0,
             "direction": position.get("direction", "") if position else "",
             "current_price": position.get("current_price", 0) if position else 0,
-            "entry_time": position.get("entry_time", 0) if position else 0,
+            "entry_time": entry_time_val,
+            "entry_time_ms": entry_time_ms,
+            "first_kline_time": klines[0]["time"] if klines else 0,
+            "last_kline_time": klines[-1]["time"] if klines else 0,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
