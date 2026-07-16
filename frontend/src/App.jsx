@@ -9,9 +9,11 @@ import TradeHistory from './components/TradeHistory'
 import SettingsPanel from './components/SettingsPanel'
 import KeyAuth from './components/KeyAuth'
 import PositionChart from './components/PositionChart'
+import WelcomeScreen from './components/WelcomeScreen'
 import { getSystemStatus, getTradingLatest, getTradingHistory, getSentimentCurrent, startTrading, stopTrading, runSingleCycle, connectWebSocket } from './api/trading'
 
 function App() {
+  const [showWelcome, setShowWelcome] = useState(true)
   const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('mexc_auth') === 'true')
   const [showLogin, setShowLogin] = useState(false)
   const [systemStatus, setSystemStatus] = useState(null)
@@ -134,7 +136,9 @@ function App() {
   const positionCount = latestData?.positions?.length || latestData?.executed?.length || systemStatus?.open_positions || 0
 
   return (
-    <div className="min-h-screen bg-[#030712] grid-bg hex-pattern relative">
+    <>
+      {showWelcome && <WelcomeScreen onEnter={() => setShowWelcome(false)} />}
+      <div className="min-h-screen bg-[#030712] grid-bg hex-pattern relative">
       {/* PARTICLE EFFECTS */}
       <div className="particles">
         {[...Array(12)].map((_, i) => (
@@ -319,6 +323,7 @@ function App() {
         </div>
       )}
     </div>
+    </>
   )
 }
 

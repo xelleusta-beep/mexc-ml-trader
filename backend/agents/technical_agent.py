@@ -178,20 +178,20 @@ class TechnicalAgent(BaseAgent):
         if current_rsi is not None and current_rsi_ma is not None and prev_rsi_ma is not None:
             if prev_rsi_ma >= 30 and current_rsi_ma < 30:
                 signals.append("rsi_oversold_entry")
-                confidence += 0.3
+                confidence += 0.35
                 reasons.append("RSI MA 30 altina dustu")
             elif prev_rsi_ma <= 70 and current_rsi_ma > 70:
                 signals.append("rsi_overbought_exit")
-                confidence += 0.2
+                confidence += 0.25
                 reasons.append("RSI MA 70 ustune cikti")
 
         if current_trend == "buy" and prev_trend != "buy":
             signals.append("ema_bullish_cross")
-            confidence += 0.25
+            confidence += 0.30
             reasons.append("EMA bullish kesim")
         elif current_trend == "sell" and prev_trend != "sell":
             signals.append("ema_bearish_cross")
-            confidence += 0.25
+            confidence += 0.30
             reasons.append("EMA bearish kesim")
 
         if current_macd is not None and current_macd_sig is not None:
@@ -200,34 +200,34 @@ class TechnicalAgent(BaseAgent):
             if prev_macd is not None and prev_macd_sig is not None:
                 if prev_macd <= prev_macd_sig and current_macd > current_macd_sig:
                     signals.append("macd_bullish")
-                    confidence += 0.15
+                    confidence += 0.20
                     reasons.append("MACD bullish kesim")
                 elif prev_macd >= prev_macd_sig and current_macd < current_macd_sig:
                     signals.append("macd_bearish")
-                    confidence += 0.15
+                    confidence += 0.20
                     reasons.append("MACD bearish kesim")
 
         if current_bb_lower is not None and current_price <= current_bb_lower:
             signals.append("bb_oversold")
-            confidence += 0.1
+            confidence += 0.15
             reasons.append("Fiyat Bollinger alt bandinda")
         if current_bb_upper is not None and current_price >= current_bb_upper:
             signals.append("bb_overbought")
-            confidence += 0.1
+            confidence += 0.15
             reasons.append("Fiyat Bollinger ust bandinda")
 
         if current_adx is not None and current_adx > 25:
-            confidence += 0.1
+            confidence += 0.15
             reasons.append(f"ADX {current_adx:.1f} guclu trend")
 
         if current_stoch_k is not None:
             if current_stoch_k < 20:
                 signals.append("stoch_oversold")
-                confidence += 0.1
+                confidence += 0.15
                 reasons.append("Stochastic RSI asiri satis")
             elif current_stoch_k > 80:
                 signals.append("stoch_overbought")
-                confidence += 0.1
+                confidence += 0.15
                 reasons.append("Stochastic RSI asiri alis")
 
         bullish_count = sum(1 for s in signals if "bullish" in s or "oversold" in s or "entry" in s)

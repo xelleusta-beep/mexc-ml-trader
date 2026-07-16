@@ -103,6 +103,10 @@ class PatronAgent(BaseAgent):
             + risk_score * 0.20
             + correlation_penalty * 0.10
         ) * regime_modifier
+
+        if technical_confidence >= 0.30:
+            composite = max(composite, technical_confidence * 0.50 * regime_modifier)
+
         composite = max(0.0, min(1.0, composite))
 
         approved = (
