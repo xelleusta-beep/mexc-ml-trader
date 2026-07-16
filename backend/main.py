@@ -639,15 +639,43 @@ async def health():
     return {"status": "ok"}
 
 
+@app.on_event("startup")
+async def startup_event():
+    _apply_settings_to_orchestrator()
+
+
 ACCESS_KEY = "MEXC2024"
-_system_settings = {
+_default_settings = {
     "cycle_interval": 300,
     "min_confidence": 0.15,
     "max_positions": 5,
-    "risk_per_trade": 2.0,
+    "risk_per_trade": 1.0,
     "daily_risk": 5.0,
-    "leverage_max": 20,
+    "leverage_max": 10,
 }
+
+from data_store import load_settings, save_settings as _save_settings
+_loaded_settings = load_settings() or {}
+_system_settings = {**_default_settings, **_loaded_settings}
+
+
+def _apply_settings_to_orchestrator():
+    try:
+        risk = orchestrator.risk
+        risk.max_risk_per_trade = _system_settings.get("risk_per_trade", 1.0) / 100.0
+        risk.max_positions = _system_settings.get("max_positions", 5)
+        risk.max_leverage = _system_settings.get("leverage_max", 10)
+        risk.max_daily_loss_pct = _system_settings.get("daily_risk", 5.0) / 100.0
+        risk.min_confidence = _system_settings.get("min_confidence", 0.15)
+        orchestrator.patron.min_confidence = _system_settings.get("min_confidence", 0.15)
+        orchestrator.cycle_interval = _system_settings.get("cycle_interval", 300)
+        risk.total_equity = orchestrator.total_equity
+        risk.available_capital = orchestrator.available_capital
+        orchestrator.portfolio.total_equity = orchestrator.total_equity
+        orchestrator.portfolio.available_capital = orchestrator.available_capital
+        print(f"[CONFIG] Ayarlar uygulandi: min_conf={risk.min_confidence}, risk%={risk.max_risk_per_trade*100}, max_pos={risk.max_positions}, leverage={risk.max_leverage}, daily_risk={risk.max_daily_loss_pct*100}%")
+    except Exception as e:
+        print(f"[CONFIG] Ayar uygulama hatasi: {e}")
 
 
 @app.post("/api/auth/verify")
@@ -668,6 +696,8 @@ async def update_config(body: dict):
     for k, v in body.items():
         if k in _system_settings:
             _system_settings[k] = v
+    _save_settings(_system_settings)
+    _apply_settings_to_orchestrator()
     return {"status": "ok", "settings": _system_settings}
 
 
@@ -977,7 +1007,8 @@ async def trading_start():
     if orchestrator.running:
         return {"status": "already_running", "message": "Sistem zaten çalışıyor"}
 
-    orchestrator_task = asyncio.create_task(orchestrator.start())
+    _apply_settings_to_orchestrator()
+    orchestrator_task = asyncio.create_task(orchestrator.start(_system_settings.get("cycle_interval", 300)))
     return {"status": "started", "message": "Trading sistemi başlatıldı"}
 
 

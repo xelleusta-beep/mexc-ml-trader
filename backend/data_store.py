@@ -9,6 +9,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 STATE_FILE = DATA_DIR / "trading_state.json"
 BACKUP_FILE = DATA_DIR / "trading_state_backup.json"
+SETTINGS_FILE = DATA_DIR / "system_settings.json"
 
 
 def save_state(
@@ -55,6 +56,28 @@ def load_state() -> dict | None:
             print(f"[DATA STORE] {fpath.name} yukleme hatasi: {e}")
 
     print("[DATA STORE] Kayitli veri bulunamadi, sifirdan basliyor")
+    return None
+
+
+def save_settings(settings: dict):
+    try:
+        tmp = SETTINGS_FILE.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+        tmp.replace(SETTINGS_FILE)
+    except Exception as e:
+        print(f"[DATA STORE] Ayar kayit hatasi: {e}")
+
+
+def load_settings() -> dict | None:
+    try:
+        if SETTINGS_FILE.exists():
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+            print(f"[DATA STORE] Ayarlar yuklendi: {settings}")
+            return settings
+    except Exception as e:
+        print(f"[DATA STORE] Ayar yukleme hatasi: {e}")
     return None
 
 

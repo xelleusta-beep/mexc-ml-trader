@@ -39,20 +39,25 @@ class Orchestrator:
         self.websocket_clients: list = []
         self.latest_results: dict = {}
         self._position_updater_task = None
+        self.cycle_interval = 300
 
         self._load_persisted_state()
 
-    async def start(self, interval: int = 300):
+    async def start(self, interval: int = None):
         self.running = True
-        self.total_equity = self.risk.total_equity
-        self.available_capital = self.total_equity
-        self._log("Orchestrator baslatildi")
+        if interval is not None:
+            self.cycle_interval = interval
+        if self.total_equity <= 0 or self.total_equity > 200:
+            self.total_equity = self.risk.total_equity
+        self.available_capital = self.total_equity - sum(p.get("size_usd", 0) for p in self.open_positions)
+        self._log(f"Orchestrator baslatildi - dongu: {self.cycle_interval}s, sermaye: ${self.total_equity:.2f}")
         self._position_updater_task = asyncio.create_task(self._position_updater_loop())
 
         while self.running:
             try:
                 await self.run_cycle()
-                await asyncio.sleep(interval)
+                self._persist_state()
+                await asyncio.sleep(self.cycle_interval)
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -464,6 +469,7 @@ class Orchestrator:
             "status": "closed",
         }
         self.trade_history.append(trade_record)
+        self._persist_state()
 
         emoji = "+" if net_pnl >= 0 else ""
         self._log(f"POZISYON KAPATILDI: {symbol} {direction.upper()} @${current} | PnL: {emoji}${net_pnl:.2f} (brut: {emoji}${pnl_usd:.2f}, fee: -${total_fees:.4f}) - {reason}")

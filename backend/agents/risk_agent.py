@@ -9,6 +9,7 @@ class RiskManagerAgent(BaseAgent):
         self.max_positions = 5
         self.max_leverage = 10
         self.max_daily_loss_pct = 0.05
+        self.min_confidence = 0.15
         self.daily_pnl = 0.0
         self.daily_start_equity = 0.0
         self.last_daily_reset = 0

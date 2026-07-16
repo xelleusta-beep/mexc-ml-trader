@@ -5,9 +5,9 @@ export default function SettingsPanel({ isRunning = false, onStart = () => {}, o
     cycle_interval: 300,
     min_confidence: 0.15,
     max_positions: 5,
-    risk_per_trade: 2.0,
+    risk_per_trade: 1.0,
     daily_risk: 5.0,
-    leverage_max: 20,
+    leverage_max: 10,
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -148,7 +148,7 @@ export default function SettingsPanel({ isRunning = false, onStart = () => {}, o
             <p className="text-label text-red-400/60 mb-3" style={{ fontSize: '11px' }}>RİSK YÖNETİMİ</p>
             <div className="space-y-3">
               {[
-                { key: 'risk_per_trade', label: 'İŞLEM BAŞINA RİSK', min: 0.5, max: 5, step: 0.5, suffix: '%', color: 'text-red-400' },
+                { key: 'risk_per_trade', label: 'İŞLEM BAŞINA RİSK (KASA KULLANIMI)', min: 0.5, max: 5, step: 0.5, suffix: '%', color: 'text-red-400' },
                 { key: 'daily_risk', label: 'GÜNLÜK RİSK', min: 1, max: 10, step: 0.5, suffix: '%', color: 'text-orange-400' },
                 { key: 'leverage_max', label: 'MAKS KALDIRAÇ', min: 1, max: 50, step: 1, suffix: 'x', color: 'text-yellow-400' },
                 { key: 'max_positions', label: 'MAKS POZİSYON', min: 1, max: 10, step: 1, suffix: '', color: 'text-green-400' },
