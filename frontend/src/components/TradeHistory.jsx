@@ -2,19 +2,16 @@ import { useState } from 'react'
 import TradeDetail from './TradeDetail'
 
 const closeReasonColors = {
-  'TP tetiklendi': 'text-green-400 bg-green-500/10 border-green-500/20',
-  'SL tetiklendi': 'text-red-400 bg-red-500/10 border-red-500/20',
-  'Patron yon degistirme': 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
-  'Sure doldu': 'text-gray-400 bg-gray-500/10 border-gray-500/20',
+  'TP tetiklendi': { color: '#39ff14', bg: '#39ff1408' },
+  'SL tetiklendi': { color: '#ff3366', bg: '#ff336608' },
+  'Patron yon degistirme': { color: '#ffd700', bg: '#ffd70008' },
+  'Sure doldu': { color: '#8b95a5', bg: '#8b95a508' },
 }
 
 function formatTimestamp(ts) {
   if (!ts) return ''
   const d = new Date(ts * 1000)
-  return d.toLocaleString('tr-TR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', second: '2-digit'
-  })
+  return d.toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function formatDuration(entryTs, closeTs) {
@@ -22,8 +19,6 @@ function formatDuration(entryTs, closeTs) {
   const diff = (closeTs - entryTs) * 1000
   const mins = Math.floor(diff / 60000)
   const hours = Math.floor(mins / 60)
-  const days = Math.floor(hours / 24)
-  if (days > 0) return `${days}g ${hours % 24}sa`
   if (hours > 0) return `${hours}sa ${mins % 60}dk`
   return `${mins}dk`
 }
@@ -37,10 +32,7 @@ export default function TradeHistory({ trades: tradesProp }) {
   const totalPnl = trades.reduce((sum, t) => sum + (t.pnl || 0), 0)
   const winning = trades.filter(t => (t.pnl || 0) > 0)
   const losing = trades.filter(t => (t.pnl || 0) < 0)
-  const breakeven = trades.filter(t => (t.pnl || 0) === 0)
   const winRate = trades.length > 0 ? (winning.length / trades.length * 100) : 0
-  const avgWin = winning.length > 0 ? winning.reduce((s, t) => s + (t.pnl_pct || 0), 0) / winning.length : 0
-  const avgLoss = losing.length > 0 ? losing.reduce((s, t) => s + (t.pnl_pct || 0), 0) / losing.length : 0
 
   const sorted = [...trades].sort((a, b) => {
     let cmp = 0
@@ -50,147 +42,96 @@ export default function TradeHistory({ trades: tradesProp }) {
     return sortDir === 'desc' ? cmp : -cmp
   })
 
-  const handleSort = (field) => {
-    if (sortBy === field) setSortDir(d => d === 'desc' ? 'asc' : 'desc')
-    else { setSortBy(field); setSortDir('desc') }
-  }
-
   return (
-    <div className="glass-panel glass-panel-purple p-4 corner-deco scanline">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <span className="text-purple-400 text-base">◈</span>
-          <span className="text-label text-purple-400/70">İŞLEM GEÇMİŞİ</span>
+    <div className="cinematic-border rounded-2xl p-5" style={{ background: 'linear-gradient(145deg, rgba(6,10,22,0.95) 0%, rgba(14,10,22,0.9) 100%)' }}>
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: '#b026ff08', border: '1px solid #b026ff15' }}>
+            <span style={{ color: '#b026ff', fontSize: '13px' }}>◈</span>
+          </div>
+          <span className="text-[11px] font-bold tracking-[0.15em] text-gray-400 font-mono">İŞLEM GEÇMİŞİ</span>
         </div>
-        <div className="text-sm text-gray-500">
-          {trades.length} işlem
-        </div>
+        <div className="text-[11px] text-gray-600 font-mono">{trades.length} işlem</div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-4">
-        <div className="bg-black/30 rounded px-2 py-2 text-center">
-          <p className="text-label text-gray-500" style={{ fontSize: '10px' }}>BAŞARI</p>
-          <p className={`text-lg font-bold ${winRate >= 50 ? 'neon-green' : 'neon-red'}`}>
-            %{winRate.toFixed(0)}
-          </p>
-        </div>
-        <div className="bg-black/30 rounded px-2 py-2 text-center">
-          <p className="text-label text-gray-500" style={{ fontSize: '10px' }}>TOPLAM PNL</p>
-          <p className={`text-lg font-bold ${totalPnl >= 0 ? 'neon-green' : 'neon-red'}`}>
-            {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(0)}
-          </p>
-        </div>
-        <div className="bg-black/30 rounded px-2 py-2 text-center">
-          <p className="text-label text-gray-500" style={{ fontSize: '10px' }}>KAZANAN</p>
-          <p className="text-lg font-bold neon-green">{winning.length}</p>
-        </div>
-        <div className="bg-black/30 rounded px-2 py-2 text-center">
-          <p className="text-label text-gray-500" style={{ fontSize: '10px' }}>KAYBEDEN</p>
-          <p className="text-lg font-bold neon-red">{losing.length}</p>
-        </div>
-        <div className="bg-black/30 rounded px-2 py-2 text-center">
-          <p className="text-label text-gray-500" style={{ fontSize: '10px' }}>ORT. KAZANÇ</p>
-          <p className="text-sm font-bold neon-green">+{avgWin.toFixed(1)}%</p>
-        </div>
-        <div className="bg-black/30 rounded px-2 py-2 text-center">
-          <p className="text-label text-gray-500" style={{ fontSize: '10px' }}>ORT. KAYIP</p>
-          <p className="text-sm font-bold neon-red">{avgLoss.toFixed(1)}%</p>
-        </div>
-      </div>
-
-      {/* Sort Controls */}
-      <div className="flex items-center gap-2 mb-3">
-        <span className="text-xs text-gray-500">SIRALA:</span>
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-5">
         {[
-          { key: 'date', label: 'TARİH' },
-          { key: 'pnl', label: 'PNL' },
-          { key: 'symbol', label: 'SEMBOL' },
-        ].map(s => (
-          <button
-            key={s.key}
-            onClick={() => handleSort(s.key)}
-            className={`text-xs px-2 py-1 rounded border transition-all ${
-              sortBy === s.key
-                ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-400'
-                : 'border-gray-700 text-gray-500 hover:text-gray-300'
-            }`}
-          >
+          { label: 'BAŞARI', value: `%${winRate.toFixed(0)}`, color: winRate >= 50 ? '#39ff14' : '#ff3366' },
+          { label: 'TOPLAM PNL', value: `${totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(0)}`, color: totalPnl >= 0 ? '#39ff14' : '#ff3366' },
+          { label: 'KAZANAN', value: winning.length, color: '#39ff14' },
+          { label: 'KAYBEDEN', value: losing.length, color: '#ff3366' },
+          { label: 'ORT. KAZANÇ', value: `+${(winning.length > 0 ? winning.reduce((s, t) => s + (t.pnl_pct || 0), 0) / winning.length : 0).toFixed(1)}%`, color: '#39ff14' },
+          { label: 'ORT. KAYIP', value: `${(losing.length > 0 ? losing.reduce((s, t) => s + (t.pnl_pct || 0), 0) / losing.length : 0).toFixed(1)}%`, color: '#ff3366' },
+        ].map((item, i) => (
+          <div key={i} className="rounded-lg px-2 py-2.5 text-center border border-white/[0.03]" style={{ background: `${item.color}03` }}>
+            <p className="text-[9px] text-gray-600 tracking-wider font-mono mb-0.5">{item.label}</p>
+            <p className="text-[14px] font-bold font-mono" style={{ color: item.color }}>{item.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-[10px] text-gray-600 font-mono">SIRALA:</span>
+        {[{ key: 'date', label: 'TARİH' }, { key: 'pnl', label: 'PNL' }, { key: 'symbol', label: 'SEMBOL' }].map(s => (
+          <button key={s.key} onClick={() => { if (sortBy === s.key) setSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSortBy(s.key); setSortDir('desc') } }}
+            className="text-[10px] px-2 py-1 rounded-lg border transition-all font-mono" style={{
+              borderColor: sortBy === s.key ? '#00f0ff20' : '#ffffff06',
+              background: sortBy === s.key ? '#00f0ff08' : 'transparent',
+              color: sortBy === s.key ? '#00f0ff' : '#8b95a5',
+            }}>
             {s.label} {sortBy === s.key ? (sortDir === 'desc' ? '▼' : '▲') : ''}
           </button>
         ))}
       </div>
 
-      {/* Trade List */}
       {sorted.length > 0 ? (
         <div className="space-y-1.5">
           {sorted.map((trade, i) => {
             const pnl = trade.pnl || 0
             const isProfit = pnl >= 0
-            const reasonClass = closeReasonColors[trade.close_reason] || 'text-gray-400 bg-gray-500/10 border-gray-500/20'
+            const reasonStyle = closeReasonColors[trade.close_reason] || { color: '#8b95a5', bg: '#8b95a508' }
             const duration = formatDuration(trade.entry_time, trade.close_time)
             const originalIndex = trades.findIndex(t => t === trade)
-
             return (
               <div key={i} onClick={() => setSelectedTrade({ ...trade, _index: originalIndex })}
-                className="flex items-center gap-3 p-2.5 rounded-lg bg-black/20 hover:bg-purple-500/5 transition-all border border-white/[0.02] cursor-pointer group">
-                <div className={`w-1 h-12 rounded-full ${isProfit ? 'bg-green-500' : pnl < 0 ? 'bg-red-500' : 'bg-gray-500'}`} />
+                className="flex items-center gap-3 p-3 rounded-xl border border-white/[0.03] cursor-pointer transition-all hover:border-white/[0.06] group" style={{ background: `${isProfit ? '#39ff14' : '#ff3366'}03` }}>
+                <div className="w-1 h-10 rounded-full" style={{ background: isProfit ? '#39ff14' : '#ff3366' }} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-bold text-white">{trade.symbol}</span>
-                    <span className={`tag text-[10px] ${
-                      trade.direction === 'long' ? 'border-green-500/30 neon-green' : 'border-red-500/30 neon-red'
-                    }`}>
-                      {trade.direction?.toUpperCase()}
-                    </span>
-                    <span className="text-[10px] text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/20">
-                      x{trade.leverage}
-                    </span>
-                    {trade.close_reason && (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded border ${reasonClass}`}>
-                        {trade.close_reason}
-                      </span>
-                    )}
-                    {duration && (
-                      <span className="text-[10px] text-gray-600">{duration}</span>
-                    )}
+                    <span className="text-[13px] font-bold text-white font-mono">{trade.symbol}</span>
+                    <span className="text-[9px] px-2 py-0.5 rounded-md font-bold tracking-wider font-mono border" style={{
+                      color: trade.direction === 'long' ? '#39ff14' : '#ff3366',
+                      borderColor: trade.direction === 'long' ? '#39ff1430' : '#ff336630',
+                      background: trade.direction === 'long' ? '#39ff1410' : '#ff336610',
+                    }}>{trade.direction?.toUpperCase()}</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-md font-mono" style={{ color: '#b026ff', border: '1px solid #b026ff20', background: '#b026ff08' }}>x{trade.leverage}</span>
+                    {trade.close_reason && <span className="text-[9px] px-1.5 py-0.5 rounded-md font-mono" style={{ color: reasonStyle.color, background: reasonStyle.bg }}>{trade.close_reason}</span>}
+                    {duration && <span className="text-[9px] text-gray-700 font-mono">{duration}</span>}
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-gray-400 mt-1">
-                    <span>Giriş: ${trade.entry_price?.toFixed(4)}</span>
-                    <span className="text-gray-600">→</span>
-                    <span>Çıkış: ${trade.exit_price?.toFixed(4)}</span>
-                    <span className="text-gray-600">${trade.size_usd?.toFixed(0)}</span>
-                  </div>
-                  <div className="flex items-center gap-4 text-[10px] text-gray-500 mt-1">
-                    <span className="text-cyan-400/60">Açılış: {formatTimestamp(trade.entry_time)}</span>
-                    <span className="text-purple-400/60">Kapanış: {formatTimestamp(trade.close_time)}</span>
-                    {duration && <span className="text-gray-600">{duration}</span>}
+                  <div className="flex items-center gap-3 text-[10px] text-gray-600 mt-1 font-mono">
+                    <span>${trade.entry_price?.toFixed(4)}</span>
+                    <span className="text-gray-700">→</span>
+                    <span>${trade.exit_price?.toFixed(4)}</span>
+                    <span className="text-gray-700">${trade.size_usd?.toFixed(0)}</span>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className={`text-lg font-bold ${isProfit ? 'neon-green' : pnl < 0 ? 'neon-red' : 'text-gray-400'}`}>
-                    {isProfit ? '+' : ''}{pnl.toFixed(2)}
-                  </p>
-                  <p className={`text-sm ${isProfit ? 'text-green-400' : pnl < 0 ? 'text-red-400' : 'text-gray-500'}`}>
-                    {isProfit ? '+' : ''}{trade.pnl_pct?.toFixed(1)}%
-                  </p>
+                  <p className="text-[16px] font-bold font-mono" style={{ color: isProfit ? '#39ff14' : '#ff3366' }}>{isProfit ? '+' : ''}{pnl.toFixed(2)}</p>
+                  <p className="text-[10px] font-mono" style={{ color: isProfit ? '#39ff1480' : '#ff336680' }}>{isProfit ? '+' : ''}{trade.pnl_pct?.toFixed(1)}%</p>
                 </div>
-                <span className="text-gray-600 text-xs group-hover:text-cyan-400 transition-colors">◇</span>
               </div>
             )
           })}
         </div>
       ) : (
         <div className="text-center py-16">
-          <div className="text-6xl mb-4 opacity-10">◈</div>
-          <p className="text-base text-gray-500 font-semibold">Henüz kapanan işlem yok</p>
-          <p className="text-sm text-gray-600 mt-2">SL/TP tetiklendiğinde işlemler burada görünecek</p>
+          <div className="text-5xl mb-4 opacity-10">◈</div>
+          <p className="text-[14px] text-gray-600">Henüz kapanan işlem yok</p>
+          <p className="text-[11px] text-gray-700 mt-1 font-mono">SL/TP tetiklendiğinde işlemler burada görünecek</p>
         </div>
       )}
 
-      {selectedTrade && (
-        <TradeDetail trade={selectedTrade} onClose={() => setSelectedTrade(null)} />
-      )}
+      {selectedTrade && <TradeDetail trade={selectedTrade} onClose={() => setSelectedTrade(null)} />}
     </div>
   )
 }

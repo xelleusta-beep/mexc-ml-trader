@@ -151,87 +151,80 @@ function App() {
       </div>
 
       {/* HEADER */}
-      <header className="border-b border-cyan-500/10 bg-[#030712]/95 backdrop-blur-xl sticky top-0 z-50">
+      <header className="border-b border-white/[0.04] sticky top-0 z-50" style={{ background: 'rgba(3,7,18,0.92)', backdropFilter: 'blur(20px)' }}>
         <div className="max-w-[1920px] mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4 md:gap-6">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-cyan-500/20 to-purple-500/20 border border-cyan-500/30 flex items-center justify-center animate-glowPulse">
-                <span className="font-orbitron text-lg neon-cyan">M</span>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #00f0ff12, #b026ff08)', border: '1px solid #00f0ff20', boxShadow: '0 0 20px #00f0ff08' }}>
+                <span className="font-orbitron text-base" style={{ color: '#00f0ff' }}>M</span>
               </div>
               <div>
-                <h1 className="font-orbitron text-base md:text-lg font-bold tracking-[0.15em]">
-                  <span className="neon-cyan">MEXC</span>
-                  <span className="text-gray-500 ml-1.5 hidden sm:inline">TRADING</span>
-                  <span className="neon-purple ml-1.5">NEXUS</span>
+                <h1 className="font-orbitron text-sm md:text-base font-bold tracking-[0.15em]">
+                  <span style={{ color: '#00f0ff' }}>MEXC</span>
+                  <span className="text-gray-700 mx-1 hidden sm:inline">|</span>
+                  <span style={{ color: '#b026ff' }}>NEXUS</span>
                 </h1>
-                <p className="text-[10px] text-cyan-500/40 tracking-[0.2em] hidden md:block">MULTI-AGENT NEURAL NETWORK</p>
+                <p className="text-[8px] text-gray-600 tracking-[0.2em] font-mono hidden md:block">MULTI-AGENT NEURAL NETWORK</p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3 md:gap-4 ml-2 md:ml-4 pl-4 border-l border-cyan-500/10">
+            <div className="flex items-center gap-3 ml-2 md:ml-4 pl-4 border-l border-white/[0.05]">
               <div className="flex items-center gap-2">
-                <div className={`status-dot ${wsConnected ? 'bg-green-400 text-green-400' : 'bg-red-400 text-red-400'}`} />
-                <span className="text-xs md:text-sm tracking-wider font-semibold" style={{ color: wsConnected ? '#39ff14' : '#ff0040' }}>
+                <div className="relative">
+                  <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-400' : 'bg-red-400'}`} />
+                  {wsConnected && <div className="absolute inset-0 w-2 h-2 rounded-full bg-green-400 animate-ping opacity-40" />}
+                </div>
+                <span className="text-[10px] md:text-[11px] tracking-wider font-bold font-mono" style={{ color: wsConnected ? '#39ff14' : '#ff3366' }}>
                   {wsConnected ? 'ONLINE' : 'OFFLINE'}
                 </span>
               </div>
-              <div className="text-xs md:text-sm text-cyan-500/50 font-mono font-semibold hidden sm:block">
-                {formatTime(time)}
-              </div>
+              <div className="text-[10px] md:text-[11px] text-gray-600 font-mono hidden sm:block">{formatTime(time)}</div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 md:gap-6">
-            {/* EQUITY DISPLAY */}
-            <div className="flex items-center gap-3 md:gap-6 px-3 md:px-5 py-2.5 glass-panel rounded-xl">
+          <div className="flex items-center gap-3 md:gap-4">
+            <div className="flex items-center gap-4 md:gap-5 px-4 py-2 rounded-xl border border-white/[0.04]" style={{ background: 'rgba(0,240,255,0.02)' }}>
               <div>
-                <p className="text-label text-cyan-500/50" style={{ fontSize: '10px' }}>PORTFÖY</p>
-                <p className={`text-value neon-cyan transition-all font-mono ${equityFlash === 'up' ? 'flash-green' : equityFlash === 'down' ? 'flash-red' : ''}`}>
+                <p className="text-[9px] text-gray-600 tracking-wider font-mono mb-0.5">PORTFÖY</p>
+                <p className={`text-[16px] md:text-[18px] font-bold font-mono transition-all ${equityFlash === 'up' ? 'flash-green' : equityFlash === 'down' ? 'flash-red' : ''}`} style={{ color: '#00f0ff' }}>
                   ${totalEquity.toLocaleString()}
                 </p>
               </div>
-              <div className="w-px h-8 bg-cyan-500/10 hidden sm:block" />
+              <div className="w-px h-7 bg-white/[0.05] hidden sm:block" />
               <div className="hidden sm:block">
-                <p className="text-label text-green-500/50" style={{ fontSize: '10px' }}>KULLANILAN</p>
-                <p className="text-value text-green-400 font-mono">${usedCapital.toLocaleString()}</p>
+                <p className="text-[9px] text-gray-600 tracking-wider font-mono mb-0.5">KULLANILAN</p>
+                <p className="text-[16px] md:text-[18px] font-bold font-mono" style={{ color: '#39ff14' }}>${usedCapital.toLocaleString()}</p>
               </div>
-              <div className="w-px h-8 bg-cyan-500/10 hidden sm:block" />
+              <div className="w-px h-7 bg-white/[0.05] hidden sm:block" />
               <div className="hidden sm:block">
-                <p className="text-label text-purple-500/50" style={{ fontSize: '10px' }}>POZİSYON</p>
-                <p className="text-value neon-purple">{positionCount}/5</p>
+                <p className="text-[9px] text-gray-600 tracking-wider font-mono mb-0.5">POZİSYON</p>
+                <p className="text-[16px] md:text-[18px] font-bold font-mono" style={{ color: '#b026ff' }}>{positionCount}/5</p>
               </div>
             </div>
 
-            {/* CONTROLS */}
             <div className="flex items-center gap-2">
               {authenticated ? (
                 <>
-                  {!isRunning ? (
-                    <button onClick={handleStart} disabled={loading} className="btn-neon btn-neon-green text-xs md:text-sm">
-                      ▶ BAŞLAT
-                    </button>
-                  ) : (
-                    <button onClick={handleStop} disabled={loading} className="btn-neon btn-neon-red text-xs md:text-sm">
-                      ■ DURDUR
-                    </button>
-                  )}
-                  <button onClick={handleRunCycle} disabled={loading || isRunning} className="btn-neon btn-neon-purple text-xs md:text-sm hidden sm:block">
+                  <button onClick={isRunning ? handleStop : handleStart} disabled={loading}
+                    className="px-4 py-2 rounded-xl text-[10px] font-bold tracking-wider font-mono transition-all duration-300"
+                    style={{ background: isRunning ? '#ff336608' : '#39ff1408', border: `1px solid ${isRunning ? '#ff336620' : '#39ff1420'}`, color: isRunning ? '#ff3366' : '#39ff14' }}>
+                    {isRunning ? '■ DURDUR' : '▶ BAŞLAT'}
+                  </button>
+                  <button onClick={handleRunCycle} disabled={loading || isRunning}
+                    className="px-4 py-2 rounded-xl text-[10px] font-bold tracking-wider font-mono transition-all duration-300 hidden sm:block"
+                    style={{ background: '#b026ff08', border: '1px solid #b026ff20', color: '#b026ff' }}>
                     ▷ TEK DÖNGÜ
                   </button>
-                  <button
-                    onClick={() => { localStorage.removeItem('mexc_auth'); setAuthenticated(false) }}
-                    className="btn-neon btn-neon-red text-xs md:text-sm ml-2"
-                    title="Çıkış"
-                  >
-                    ◈
+                  <button onClick={() => { localStorage.removeItem('mexc_auth'); setAuthenticated(false) }}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-300"
+                    style={{ background: '#ff336606', border: '1px solid #ff336615', color: '#ff3366' }}>
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
                   </button>
                 </>
               ) : (
-                <button
-                  onClick={() => setShowLogin(true)}
-                  className="btn-neon btn-neon-cyan text-xs md:text-sm"
-                >
-                  🔑 GİRİŞ YAP
+                <button onClick={() => setShowLogin(true)} className="px-4 py-2 rounded-xl text-[10px] font-bold tracking-wider font-mono transition-all duration-300"
+                  style={{ background: '#00f0ff08', border: '1px solid #00f0ff20', color: '#00f0ff' }}>
+                  🔑 GİRİŞ
                 </button>
               )}
             </div>
@@ -240,19 +233,20 @@ function App() {
       </header>
 
       {/* TABS */}
-      <div className="border-b border-cyan-500/10 bg-[#030712]/85 backdrop-blur-sm overflow-x-auto">
+      <div className="border-b border-white/[0.04] overflow-x-auto" style={{ background: 'rgba(3,7,18,0.85)', backdropFilter: 'blur(10px)' }}>
         <div className="max-w-[1920px] mx-auto px-4 flex gap-1 min-w-max">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 md:px-5 py-3 text-[11px] md:text-xs font-bold tracking-[0.15em] transition-all border-b-2 flex items-center gap-2 whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'border-cyan-400 text-cyan-400 bg-cyan-500/5'
-                  : 'border-transparent text-gray-500 hover:text-gray-300 hover:border-gray-600'
-              }`}
+              className="px-4 md:px-5 py-3 text-[10px] md:text-[11px] font-bold tracking-[0.12em] font-mono transition-all duration-300 border-b-2 flex items-center gap-2 whitespace-nowrap"
+              style={{
+                borderColor: activeTab === tab.id ? '#00f0ff40' : 'transparent',
+                color: activeTab === tab.id ? '#00f0ff' : '#8b95a560',
+                background: activeTab === tab.id ? '#00f0ff04' : 'transparent',
+              }}
             >
-              <span className="text-sm">{tab.icon}</span>
+              <span className="text-[12px]">{tab.icon}</span>
               {tab.label}
             </button>
           ))}
