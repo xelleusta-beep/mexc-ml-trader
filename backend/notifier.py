@@ -122,6 +122,21 @@ async def send_telegram_photo(svg_content: str, caption: str):
         print(f"[NOTIFIER] Telegram grafik gonderim hatasi: {e}")
 
 
+async def send_telegram_text(text: str):
+    """Telegram'a text mesaji gonderir."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"},
+            )
+            return resp.json()
+    except Exception:
+        pass
+
+
 async def notify_position_opened(pos: dict):
     symbol = pos.get("symbol", "?")
     direction = pos.get("direction", "?").upper()

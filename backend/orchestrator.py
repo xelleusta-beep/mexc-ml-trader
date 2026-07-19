@@ -76,7 +76,14 @@ class Orchestrator:
         state = load_state()
         if state:
             self.trade_history = state.get("trade_history", [])
-            self.open_positions = state.get("open_positions", [])
+            raw_positions = state.get("open_positions", [])
+            seen = set()
+            self.open_positions = []
+            for p in raw_positions:
+                sym = p.get("symbol", "")
+                if sym and sym not in seen:
+                    seen.add(sym)
+                    self.open_positions.append(p)
             self.total_equity = state.get("total_equity", 100.0)
             self.available_capital = state.get("available_capital", 100.0)
             self.cycle_count = state.get("cycle_count", 0)
@@ -100,12 +107,34 @@ class Orchestrator:
             trade_count=self.trade_count,
         )
 
+    async def _sync_mexc_positions(self):
+        try:
+            mexc_positions = await futures_get_positions()
+            mexc_symbols = set()
+            for mp in mexc_positions:
+                sym = mp.get("symbol", "")
+                if sym and mp.get("currentQty", 0) != 0:
+                    mexc_symbols.add(sym)
+
+            local_symbols = {p.get("symbol") for p in self.open_positions}
+
+            for sym in local_symbols - mexc_symbols:
+                self.open_positions = [p for p in self.open_positions if p.get("symbol") != sym]
+                self._log(f"MEXC senkron: {sym} pozisyonu kapatildi (MEXC'de yok)")
+
+            for sym in mexc_symbols - local_symbols:
+                self._log(f"MEXC senkron: {sym} MEXC'de acik ama sistemde yok - atlandi")
+        except Exception as e:
+            self._log(f"MEXC senkron hatasi: {e}")
+
     async def run_cycle(self) -> dict:
         cycle_start = time.time()
         self.cycle_count += 1
         self._log(f"Dongu #{self.cycle_count} baslatildi")
 
         try:
+            await self._sync_mexc_positions()
+
             scanner_result = await self.scanner.analyze({})
             self._log(f"Scanner: {scanner_result.get('symbol_count', 0)} sembol tarandi")
 
@@ -321,6 +350,9 @@ class Orchestrator:
 
             if len(self.open_positions) >= self.risk.max_positions:
                 break
+
+            if any(d.get("symbol") == symbol for d in executed):
+                continue
 
             actual_price = await self._get_current_price(symbol)
             if actual_price <= 0:

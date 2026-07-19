@@ -17,6 +17,7 @@ from indicators import calculate_indicators, calculate_trend_signal, calculate_a
 from backtest_engine import BacktestEngine
 from orchestrator import Orchestrator
 from deep_trader import DeepTrader
+from freqtrade_integration import FreqtradeAnalyzer
 
 app = FastAPI(title="MEXC Multi-Agent Trading System")
 
@@ -1073,6 +1074,84 @@ async def websocket_live(websocket: WebSocket):
 
 
 deep_traders: dict[str, DeepTrader] = {}
+freqtrade_analyzer = FreqtradeAnalyzer()
+
+
+@app.post("/api/freqtrade/webhook")
+async def freqtrade_webhook(request: Request):
+    data = await request.json()
+    result = freqtrade_analyzer.process_webhook(data)
+    from notifier import send_telegram_text
+    await send_telegram_text(f"🤖 Freqtrade: {data.get('pair', '')} {data.get('type', '')}")
+    return result
+
+
+@app.get("/api/freqtrade/signals")
+async def freqtrade_signals(limit: int = 50):
+    return {"signals": freqtrade_analyzer.get_all_signals(limit)}
+
+
+@app.get("/api/freqtrade/active")
+async def freqtrade_active():
+    return {"active_pairs": freqtrade_analyzer.get_active_pairs()}
+
+
+@app.get("/api/freqtrade/analysis/{pair}")
+async def freqtrade_analysis(pair: str):
+    return freqtrade_analyzer.get_analysis(pair)
+
+
+@app.get("/api/freqtrade/config")
+async def freqtrade_config():
+    host = "mexc-ml-trader.onrender.com"
+    config = {
+        "trading_mode": "futures",
+        "margin_mode": "isolated",
+        "max_open_trades": 5,
+        "stake_currency": "USDT",
+        "stake_amount": 10,
+        "tradable_balance_ratio": 0.99,
+        "dry_run": True,
+        "dry_run_wallet": 100,
+        "cancel_open_orders_on_exit": False,
+        "exchange": {
+            "name": "mexc",
+            "key": "",
+            "secret": "",
+            "pair_whitelist": [],
+            "pair_blacklist": [],
+        },
+        "entry_pricing": {
+            "price_side": "same",
+            "use_order_book": True,
+            "order_book_top": 1,
+        },
+        "exit_pricing": {
+            "price_side": "same",
+            "use_order_book": True,
+            "order_book_top": 1,
+        },
+        "webhook": {
+            "enabled": True,
+            "url": f"https://{host}/api/freqtrade/webhook",
+            "status": f"https://{host}/api/freqtrade/webhook",
+            "entry": f"https://{host}/api/freqtrade/webhook",
+            "exit": f"https://{host}/api/freqtrade/webhook",
+            "protection_trigger": f"https://{host}/api/freqtrade/webhook",
+        },
+        "api_server": {
+            "enabled": True,
+            "listen_ip_address": "127.0.0.1",
+            "listen_port": 8080,
+            "verbosity": "error",
+            "enable_openapi": False,
+            "jwt_secret_key": "change_me",
+            "CORS_origins": ["http://localhost:3000"],
+            "username": "freqtrader",
+            "password": "change_me",
+        },
+    }
+    return config
 
 
 @app.get("/api/deep-trader/{symbol}")
