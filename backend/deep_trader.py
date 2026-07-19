@@ -27,8 +27,6 @@ from indicators import (
     calculate_atr,
     calculate_adx,
     calculate_stochastic_rsi,
-    calculate_obv,
-    calculate_vwap,
 )
 from mexc_client import get_client, BASE_URL, TAKER_FEE
 
@@ -183,7 +181,15 @@ class DeepTrader:
         atr = calculate_atr(high, low, close, 14)
         adx = calculate_adx(high, low, close, 14)
         stoch_k, stoch_d = calculate_stochastic_rsi(close, 14, 14, 3)
-        obv = calculate_obv(close, volume)
+
+        obv = [0.0]
+        for i in range(1, len(close)):
+            if close[i] > close[i-1]:
+                obv.append(obv[-1] + volume[i])
+            elif close[i] < close[i-1]:
+                obv.append(obv[-1] - volume[i])
+            else:
+                obv.append(obv[-1])
 
         df["rsi"] = rsi
         df["rsi_ma"] = rsi_ma
