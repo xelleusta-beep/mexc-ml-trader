@@ -1,0 +1,47 @@
+{
+    "trading_mode": "futures",
+    "margin_mode": "isolated",
+    "max_open_trades": 5,
+    "stake_currency": "USDT",
+    "stake_amount": 10,
+    "tradable_balance_ratio": 0.99,
+    "dry_run": true,
+    "dry_run_wallet": 100,
+    "cancel_open_orders_on_exit": false,
+    "exchange": {
+        "name": "mexc",
+        "key": "",
+        "secret": "",
+        "pair_whitelist": [],
+        "pair_blacklist": []
+    },
+    "entry_pricing": {
+        "price_side": "same",
+        "use_order_book": true,
+        "order_book_top": 1
+    },
+    "exit_pricing": {
+        "price_side": "same",
+        "use_order_book": true,
+        "order_book_top": 1
+    },
+    "webhook": {
+        "enabled": true,
+        "url": "https://mexc-ml-trader.onrender.com/api/freqtrade/webhook",
+        "status": "https://mexc-ml-trader.onrender.com/api/freqtrade/webhook",
+        "entry": "https://mexc-ml-trader.onrender.com/api/freqtrade/webhook",
+        "exit": "https://mexc-ml-trader.onrender.com/api/freqtrade/webhook",
+        "protection_trigger": "https://mexc-ml-trader.onrender.com/api/freqtrade/webhook"
+    },
+    "api_server": {
+        "enabled": true,
+        "listen_ip_address": "127.0.0.1",
+        "listen_port": 8080,
+        "verbosity": "error",
+        "enable_openapi": false,
+        "jwt_secret_key": "change_me",
+        "CORS_origins": ["http://localhost:3000"],
+        "username": "freqtrader",
+        "password": "change_me"
+    }
+}
