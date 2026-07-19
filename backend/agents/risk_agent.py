@@ -95,7 +95,7 @@ class RiskManagerAgent(BaseAgent):
         if direction == "hold" or price <= 0:
             return {"approved": False, "reason": "Gecersiz sinyal yonu veya fiyat"}
 
-        effective_confidence = max(confidence, 0.40)
+        effective_confidence = max(confidence, 0.20)
 
         kelly_fraction = self._kelly_criterion(effective_confidence, 0.6, 0.4)
         position_size_pct = max(kelly_fraction * 0.5, 0.05)

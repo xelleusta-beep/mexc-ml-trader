@@ -35,6 +35,7 @@ class Orchestrator:
         self.trade_history: list[dict] = []
         self.total_equity = 100.0
         self.available_capital = 100.0
+        self._closed_symbols: dict[str, float] = {}
 
         self.websocket_clients: list = []
         self.latest_results: dict = {}
@@ -314,6 +315,10 @@ class Orchestrator:
             if existing:
                 continue
 
+            closed_time = self._closed_symbols.get(symbol, 0)
+            if time.time() - closed_time < 300:
+                continue
+
             if len(self.open_positions) >= self.risk.max_positions:
                 break
 
@@ -446,6 +451,7 @@ class Orchestrator:
         self.available_capital += size + net_pnl
 
         self.open_positions = [p for p in self.open_positions if p["symbol"] != symbol]
+        self._closed_symbols[symbol] = time.time()
         self.trade_count += 1
 
         trade_record = {

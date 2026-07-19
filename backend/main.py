@@ -9,12 +9,14 @@ import json
 import datetime
 import threading
 import os
+import time
 from pathlib import Path
 
 from mexc_client import get_all_futures_symbols, get_klines, CACHE_DIR
 from indicators import calculate_indicators, calculate_trend_signal, calculate_adx, calculate_atr, calculate_macd, calculate_bollinger_bands, calculate_volume_sma, calculate_stochastic_rsi, calculate_ema
 from backtest_engine import BacktestEngine
 from orchestrator import Orchestrator
+from deep_trader import DeepTrader
 
 app = FastAPI(title="MEXC Multi-Agent Trading System")
 
@@ -1068,6 +1070,68 @@ async def websocket_live(websocket: WebSocket):
     except Exception:
         if websocket in orchestrator.websocket_clients:
             orchestrator.websocket_clients.remove(websocket)
+
+
+deep_traders: dict[str, DeepTrader] = {}
+
+
+@app.get("/api/deep-trader/{symbol}")
+async def deep_trader_status(symbol: str):
+    trader = deep_traders.get(symbol)
+    if not trader:
+        trader = DeepTrader(symbol=symbol, capital=1000.0)
+        deep_traders[symbol] = trader
+    return trader.get_status()
+
+
+@app.post("/api/deep-trader/{symbol}/train")
+async def deep_trader_train(symbol: str):
+    trader = deep_traders.get(symbol)
+    if not trader:
+        trader = DeepTrader(symbol=symbol, capital=1000.0)
+        deep_traders[symbol] = trader
+    success = await trader.train_models()
+    return {"success": success, "status": trader.get_status()}
+
+
+@app.post("/api/deep-trader/{symbol}/analyze")
+async def deep_trader_analyze(symbol: str):
+    trader = deep_traders.get(symbol)
+    if not trader:
+        trader = DeepTrader(symbol=symbol, capital=1000.0)
+        deep_traders[symbol] = trader
+    result = await trader.analyze_and_trade()
+    return result
+
+
+@app.get("/api/deep-trader/{symbol}/klines")
+async def deep_trader_klines(symbol: str, interval: str = "1h", limit: int = 500):
+    from mexc_client import get_client, BASE_URL as MEXC_BASE
+    client = await get_client()
+    all_klines = []
+    end_time = int(time.time() * 1000)
+
+    while len(all_klines) < limit:
+        batch = min(1000, limit - len(all_klines))
+        url = f"{MEXC_BASE}/api/v1/contract/klines/{symbol}"
+        params = {"interval": interval, "limit": batch}
+        if end_time:
+            params["end"] = end_time
+        try:
+            resp = await client.get(url, params=params)
+            if resp.status_code != 200:
+                break
+            data = resp.json().get("data", [])
+            if not data:
+                break
+            all_klines = data + all_klines
+            end_time = int(data[0][0]) - 1
+            if len(data) < batch:
+                break
+            await asyncio.sleep(0.1)
+        except Exception:
+            break
+    return all_klines
 
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"

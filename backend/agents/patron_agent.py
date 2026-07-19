@@ -262,13 +262,13 @@ class PatronAgent(BaseAgent):
 
     def _get_regime_modifier(self, direction: str) -> float:
         if self.market_regime == "extreme_fear":
-            return 1.2 if direction == "long" else 0.5
+            return 1.1 if direction == "long" else 0.8
         elif self.market_regime == "fear":
-            return 1.1 if direction == "long" else 0.7
+            return 1.05 if direction == "long" else 0.9
         elif self.market_regime == "extreme_greed":
-            return 0.5 if direction == "long" else 1.2
+            return 0.8 if direction == "long" else 1.1
         elif self.market_regime == "greed":
-            return 0.7 if direction == "long" else 1.1
+            return 0.9 if direction == "long" else 1.05
         return 1.0
 
     def _confidence_level(self, score: float) -> str:

@@ -10,6 +10,7 @@ import SettingsPanel from './components/SettingsPanel'
 import KeyAuth from './components/KeyAuth'
 import PositionChart from './components/PositionChart'
 import WelcomeScreen from './components/WelcomeScreen'
+import DeepTrader from './components/DeepTrader'
 import { getSystemStatus, getTradingLatest, getTradingHistory, getSentimentCurrent, startTrading, stopTrading, runSingleCycle, connectWebSocket } from './api/trading'
 
 function App() {
@@ -127,6 +128,7 @@ function App() {
     { id: 'scanner', label: 'TARAMA', icon: '◎', auth: false },
     { id: 'signals', label: 'SİNYALLER', icon: '◇', auth: false },
     { id: 'positions', label: 'POZİSYONLAR', icon: '⬡', auth: false },
+    { id: 'deep-trader', label: 'DEEP LEARNING', icon: '🧠', auth: false },
     { id: 'history', label: 'GEÇMİŞ', icon: '▣', auth: false },
     { id: 'settings', label: 'AYARLAR', icon: '⚙', auth: true },
   ].filter(tab => !tab.auth || authenticated)
@@ -288,6 +290,7 @@ function App() {
         {activeTab === 'scanner' && <MarketScanner data={latestData?.scanner} />}
         {activeTab === 'signals' && <SignalPanel data={latestData?.patron} fullPage />}
         {activeTab === 'positions' && <LivePositions positions={latestData?.positions || latestData?.executed} portfolio={latestData?.portfolio} fullPage onPositionClick={setSelectedPosition} />}
+        {activeTab === 'deep-trader' && <DeepTrader />}
         {activeTab === 'history' && <TradeHistory trades={tradeHistory} />}
         {activeTab === 'settings' && authenticated && <SettingsPanel isRunning={isRunning} onStart={handleStart} onStop={handleStop} />}
       </main>

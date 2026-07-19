@@ -27,7 +27,14 @@ class ScannerAgent(BaseAgent):
         "DOW", "SP500", "NASDAQ", "SPX", "DAX", "FTSE", "NIKKEI",
         "XAU", "XAG", "XPT", "XPD",
         "STOCK", "ETF", "BOND", "FUND", "INDEX", "FUTURES",
-        "CRCLSTOCK", "METASTOCK", "MSTRSTOCK", "NVIDIA",
+        "NVDA", "TSLA", "AAPL", "AMZN", "MSFT", "META", "GOOGL", "GOOG",
+        "COIN", "MSTR", "NFLX", "AMD", "INTC", "CRM", "ORCL", "IBM",
+        "NIO", "XPEV", "LI", "BABA", "JD", "PDD", "BIDU",
+        "V", "MA", "JPM", "GS", "MS", "WFC", "C", "BAC",
+        "DIS", "SNAP", "PINS", "UBER", "LYFT", "ABNB", "DASH",
+        "PYPL", "SQ", "SHOP", "SE", "MELI",
+        "SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "ARKK",
+        "SLV", "GLD", "USO", "UNG", "DBC",
     }
 
     def __init__(self):
@@ -43,6 +50,8 @@ class ScannerAgent(BaseAgent):
         base_upper = base_coin.upper()
         if base_upper in self.BLACKLIST_BASE_COINS:
             return True
+        if symbol.endswith("USD") and not symbol.endswith("USDT"):
+            return True
         return False
 
     async def _get_client(self) -> httpx.AsyncClient:
@@ -54,7 +63,11 @@ class ScannerAgent(BaseAgent):
         cache_file = CACHE_DIR / "all_symbols.json"
         if cache_file.exists():
             try:
-                return json.loads(cache_file.read_text(encoding="utf-8"))
+                cached = json.loads(cache_file.read_text(encoding="utf-8"))
+                return [
+                    s for s in cached
+                    if not self._is_stock_symbol(s.get("symbol", ""), s.get("baseCoin", ""))
+                ]
             except Exception:
                 pass
         return []

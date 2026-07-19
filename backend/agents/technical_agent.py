@@ -178,11 +178,11 @@ class TechnicalAgent(BaseAgent):
         if current_rsi is not None and current_rsi_ma is not None and prev_rsi_ma is not None:
             if prev_rsi_ma >= 30 and current_rsi_ma < 30:
                 signals.append("rsi_oversold_entry")
-                confidence += 0.35
+                confidence += 0.30
                 reasons.append("RSI MA 30 altina dustu")
             elif prev_rsi_ma <= 70 and current_rsi_ma > 70:
                 signals.append("rsi_overbought_exit")
-                confidence += 0.25
+                confidence += 0.30
                 reasons.append("RSI MA 70 ustune cikti")
 
         if current_trend == "buy" and prev_trend != "buy":
@@ -310,9 +310,9 @@ class TechnicalAgent(BaseAgent):
         long_votes = round(direction_votes.get("long", 0), 2)
         short_votes = round(direction_votes.get("short", 0), 2)
 
-        if long_votes > short_votes and long_votes >= 0.1:
+        if long_votes > short_votes and long_votes >= 0.3:
             combined_direction = "long"
-        elif short_votes > long_votes and short_votes >= 0.1:
+        elif short_votes > long_votes and short_votes >= 0.3:
             combined_direction = "short"
         else:
             combined_direction = "hold"

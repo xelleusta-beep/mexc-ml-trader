@@ -23,13 +23,22 @@ BLACKLIST_BASE_COINS = {
     "DOW", "SP500", "NASDAQ", "SPX", "DAX", "FTSE", "NIKKEI",
     "XAU", "XAG", "XPT", "XPD",
     "STOCK", "ETF", "BOND", "FUND", "INDEX", "FUTURES",
-    "CRCLSTOCK", "METASTOCK", "MSTRSTOCK", "NVIDIA",
+    "NVDA", "TSLA", "AAPL", "AMZN", "MSFT", "META", "GOOGL", "GOOG",
+    "COIN", "MSTR", "NFLX", "AMD", "INTC", "CRM", "ORCL", "IBM",
+    "NIO", "XPEV", "LI", "BABA", "JD", "PDD", "BIDU",
+    "V", "MA", "JPM", "GS", "MS", "WFC", "C", "BAC",
+    "DIS", "SNAP", "PINS", "UBER", "LYFT", "ABNB", "DASH",
+    "PYPL", "SQ", "SHOP", "SE", "MELI",
+    "SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "ARKK",
+    "SLV", "GLD", "USO", "UNG", "DBC",
 }
 
 
 def _is_stock_symbol(symbol: str, base_coin: str) -> bool:
     base_upper = base_coin.upper()
     if base_upper in BLACKLIST_BASE_COINS:
+        return True
+    if symbol.endswith("USD") and not symbol.endswith("USDT"):
         return True
     return False
 
