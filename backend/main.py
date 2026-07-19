@@ -18,6 +18,7 @@ from backtest_engine import BacktestEngine
 from orchestrator import Orchestrator
 from deep_trader import DeepTrader
 from freqtrade_integration import FreqtradeAnalyzer
+from freqtrade_runner import strategy_runner
 
 app = FastAPI(title="MEXC Multi-Agent Trading System")
 
@@ -1152,6 +1153,31 @@ async def freqtrade_config():
         },
     }
     return config
+
+
+@app.get("/api/strategy")
+async def strategy_status():
+    return strategy_runner.get_status()
+
+
+@app.post("/api/strategy/set/{name}")
+async def strategy_set(name: str):
+    success = strategy_runner.set_strategy(name)
+    return {"success": success, "strategy": name}
+
+
+@app.post("/api/strategy/pairs")
+async def strategy_pairs(request: Request):
+    data = await request.json()
+    pairs = data.get("pairs", [])
+    strategy_runner.set_pairs(pairs)
+    return {"success": True, "pairs": pairs}
+
+
+@app.post("/api/strategy/run")
+async def strategy_run():
+    result = await strategy_runner.run_analysis()
+    return result
 
 
 @app.get("/api/deep-trader/{symbol}")
