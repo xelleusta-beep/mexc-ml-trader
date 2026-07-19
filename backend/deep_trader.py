@@ -28,7 +28,9 @@ from indicators import (
     calculate_adx,
     calculate_stochastic_rsi,
 )
-from mexc_client import get_client, BASE_URL, TAKER_FEE
+from mexc_client import get_client, BASE_URL
+
+TAKER_FEE = 0.0005
 
 DATA_DIR = Path(__file__).parent.parent / "data" / "deep_trader"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
